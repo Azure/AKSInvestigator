@@ -1,0 +1,79 @@
+# ---------------------------------------------------------------------------
+# Saturn vLLM model (AKSInvestigator add-on, not present in upstream HolmesGPT)
+# ---------------------------------------------------------------------------
+# Pass this file to helm with `-f values-saturn.yaml` to deploy an in-cluster
+# vLLM serving the saturn-0202 model alongside HolmesGPT (OpenAI-compatible
+# API at /v1, port 8000). Point HolmesGPT at it with:
+#   additionalEnvVars:
+#     - name: MODEL
+#       value: openai/saturn-vllm
+#     - name: OPENAI_API_BASE
+#       value: http://saturn-vllm.<release-namespace>.svc.cluster.local:8000/v1
+#     - name: OPENAI_API_KEY
+#       value: dummy   # vLLM doesn't enforce auth; LiteLLM needs a non-empty value
+#
+# Even when this file is loaded, the Saturn deployment is fully suppressed if
+# modelList (in the main values.yaml) is non-empty — HolmesGPT then uses the
+# external models you configured and the in-cluster Saturn pod is not rendered.
+#
+# Without this file the chart behaves like upstream HolmesGPT: no saturn-vllm
+# deployment, no saturn-related defaults.
+saturn:
+  # Toggle the entire add-on. Even when true, the template ONLY renders if
+  # modelList is empty.
+  enabled: true
+
+  # GPU vs CPU selection. Default is CPU (false) so the chart installs on
+  # any node pool out of the box. Set to true on clusters with NVIDIA GPUs
+  # (and configure nodeSelector below to land on the GPU pool).
+  gpu: false
+
+  # Hugging Face model id and the name vLLM advertises on /v1/models.
+  model: saturn-ms/saturn-0202
+  servedModelName: saturn-vllm
+
+  # GPU default is 65536 (saturn-0202 supports 262144 natively but KV cache
+  # bites on a single A100 past ~65k). CPU default is 4096 — inference at
+  # 64k on CPU is impractical. The template picks the right one based on
+  # `gpu` if you leave this unset.
+  maxModelLen: ""
+  gpuMemoryUtilization: "0.90"
+
+  replicas: 1
+  shmSize: 2Gi
+
+  # Container images. Override to pin or to use a private mirror.
+  gpuImage: vllm/vllm-openai:v0.10.1.1
+  cpuImage: public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.9.2
+
+  # Resource requests/limits per variant. Keep these separate so a CPU-only
+  # install never accidentally requests nvidia.com/gpu.
+  resources:
+    gpu:
+      requests:
+        cpu: "2"
+        memory: "8Gi"
+        gpu: "1"
+      limits:
+        cpu: "4"
+        memory: "16Gi"
+        gpu: "1"
+    cpu:
+      requests:
+        cpu: "4"
+        memory: "16Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+
+  # Scheduling. On AKS GPU pools you usually want `agentpool: gpu` (or
+  # `kubernetes.azure.com/agentpool: gpu`). The CPU vLLM image requires
+  # AVX-512, so target an Intel pool (Standard_D*s_v5) — the prebuilt image
+  # SIGILLs on AMD EPYC (AVX2-only) nodes.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Extra args/env passed through to the vLLM container.
+  extraArgs: []
+  extraEnv: []

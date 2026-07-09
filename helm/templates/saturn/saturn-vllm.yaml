@@ -1,0 +1,202 @@
+{{/*
+Saturn vLLM model deployment.
+
+Renders ONLY when:
+  - .Values.modelList is empty (i.e. the user has not pointed HolmesGPT
+    at an external model catalog), AND
+  - .Values.saturn is set (typically via `-f helm/values-saturn.yaml`), AND
+  - .Values.saturn.enabled is true (default true in values-saturn.yaml).
+
+If values-saturn.yaml is not passed, .Values.saturn is undefined and this
+template renders nothing — the chart then behaves like upstream HolmesGPT.
+
+The GPU vs CPU variant is selected by .Values.saturn.gpu (default: false).
+
+Both variants serve an OpenAI-compatible API at /v1 on port 8000. The
+in-cluster service DNS is:
+  http://saturn-vllm.<release-namespace>.svc.cluster.local:8000/v1
+
+Reference: see /home/azureuser/llm/holmesgpt/deploy/models/README.md
+for the original standalone manifests this template is derived from.
+*/}}
+{{- if empty .Values.modelList -}}
+{{- with .Values.saturn -}}
+{{- if .enabled -}}
+{{- $gpu := .gpu | default false -}}
+{{- $servedName := .servedModelName | default "saturn-vllm" -}}
+{{- $model := .model | default "saturn-ms/saturn-0202" -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saturn-vllm
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: saturn-vllm
+    app.kubernetes.io/component: saturn-model
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+spec:
+  replicas: {{ .replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: saturn-vllm
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: saturn-vllm
+        app.kubernetes.io/component: saturn-model
+    spec:
+      containers:
+        - name: vllm
+          {{- if $gpu }}
+          image: {{ .gpuImage | default "vllm/vllm-openai:v0.10.1.1" | quote }}
+          {{- else }}
+          image: {{ .cpuImage | default "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.9.2" | quote }}
+          {{- end }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model={{ $model }}
+            - --served-model-name={{ $servedName }}
+            - --port=8000
+            # ADDED vs vLLM defaults: enable native OpenAI tool_calls API.
+            # Required for the HolmesGPT agentic loop to advance.
+            - --enable-auto-tool-choice
+            # ADDED: Qwen3/Hermes-style tool-tag parser. Lenient enough to
+            # accept bare-JSON tool calls (saturn-0202 SFT defect: only the
+            # closing </tool_call> tag is reliably emitted, no opener).
+            - --tool-call-parser=hermes
+            {{- if $gpu }}
+            - --dtype=auto
+            # GPU: bumped from vLLM default 8192 -> 65536. saturn-0202 (qwen3)
+            # supports up to 262144 natively (config.json max_position_embeddings);
+            # 65536 leaves headroom for HolmesGPT long contexts without
+            # exhausting GPU KV cache on a single A100.
+            - --max-model-len={{ .maxModelLen | default 65536 }}
+            - --gpu-memory-utilization={{ .gpuMemoryUtilization | default "0.90" }}
+            {{- else }}
+            - --device=cpu
+            - --dtype=float32
+            # CPU: smaller default context; CPU inference at 64k is impractical.
+            # Override via .Values.saturn.maxModelLen if your Intel pool has the
+            # memory and you accept the latency tradeoff.
+            - --max-model-len={{ .maxModelLen | default 4096 }}
+            {{- end }}
+            {{- with .extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: HF_HOME
+              value: /cache
+            {{- if not $gpu }}
+            - name: VLLM_TARGET_DEVICE
+              value: cpu
+            {{- end }}
+            {{- with .extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          {{- if $gpu }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 900
+            periodSeconds: 30
+            timeoutSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 120
+            successThreshold: 1
+          {{- else }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 1
+            failureThreshold: 240
+            successThreshold: 1
+          {{- end }}
+          resources:
+            {{- if $gpu }}
+            requests:
+              cpu: {{ .resources.gpu.requests.cpu | default "2" | quote }}
+              memory: {{ .resources.gpu.requests.memory | default "8Gi" | quote }}
+              nvidia.com/gpu: {{ .resources.gpu.requests.gpu | default "1" | quote }}
+            limits:
+              cpu: {{ .resources.gpu.limits.cpu | default "4" | quote }}
+              memory: {{ .resources.gpu.limits.memory | default "16Gi" | quote }}
+              nvidia.com/gpu: {{ .resources.gpu.limits.gpu | default "1" | quote }}
+            {{- else }}
+            requests:
+              cpu: {{ .resources.cpu.requests.cpu | default "4" | quote }}
+              memory: {{ .resources.cpu.requests.memory | default "16Gi" | quote }}
+            limits:
+              cpu: {{ .resources.cpu.limits.cpu | default "8" | quote }}
+              memory: {{ .resources.cpu.limits.memory | default "32Gi" | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+            - name: shm
+              mountPath: /dev/shm
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 30
+      {{- with .nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: cache
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .shmSize | default "2Gi" | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: saturn-vllm
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: saturn-vllm
+    app.kubernetes.io/component: saturn-model
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: saturn-vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
