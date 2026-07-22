@@ -41,20 +41,20 @@ AKSInvestigator/
 │       ├── ... upstream templates ...
 │       └── saturn/             # AKS-specific add-ons (preserved by sync.sh)
 │           └── saturn-vllm.yaml
-└── sync.sh                     # pull latest chart from upstream
+└── scripts/sync.sh             # pull latest chart from upstream
 ```
 
 ## Sync from upstream
 
 ```bash
 # Defaults to ~/llm/holmesgpt
-./sync.sh
+./scripts/sync.sh
 
 # Or point at a different clone
-HOLMESGPT_DIR=/path/to/holmesgpt ./sync.sh
+HOLMESGPT_DIR=/path/to/holmesgpt ./scripts/sync.sh
 ```
 
-`sync.sh` rsyncs `<HOLMESGPT_DIR>/helm/holmes/` into `./helm/`, then restores
+`scripts/sync.sh` rsyncs `<HOLMESGPT_DIR>/helm/holmes/` into `./helm/`, then restores
 the AKSInvestigator-specific files (`templates/saturn/` and
 `values-saturn.yaml`) that the rsync `--delete` would otherwise drop. Because
 `values.yaml` is now tracked verbatim from upstream, no manual re-application

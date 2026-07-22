@@ -16,7 +16,7 @@
 set -euo pipefail
 
 HOLMESGPT_DIR="${HOLMESGPT_DIR:-${HOME}/llm/holmesgpt}"
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_CHART="${HOLMESGPT_DIR}/helm/holmes"
 DST_CHART="${REPO_ROOT}/helm"
 
