@@ -1,5 +1,9 @@
 name: Sync HolmesGPT chart
 
+# Show the upstream version being synced in the run title (Actions list), e.g.
+# "Sync HolmesGPT chart 0.36.0".
+run-name: Sync HolmesGPT chart ${{ inputs.ref }}
+
 # Pull the latest upstream HolmesGPT Helm chart into ./helm and open a PR
 # when a new upstream release is cut. Triggered manually from the Actions tab.
 on:
