@@ -59,4 +59,23 @@ for path in "${KEEP_FILES[@]}"; do
   fi
 done
 
+# Record which upstream commit we synced. Written at the repo root (outside
+# ${DST_CHART}) so rsync --delete never touches it.
+UPSTREAM_REF="$(git -C "${HOLMESGPT_DIR}" describe --tags --always --dirty 2>/dev/null || echo unknown)"
+UPSTREAM_SHA="$(git -C "${HOLMESGPT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+UPSTREAM_DATE="$(git -C "${HOLMESGPT_DIR}" show -s --format=%cs HEAD 2>/dev/null || echo unknown)"
+
+if [[ "${UPSTREAM_REF}" == *-dirty ]]; then
+  echo "warning: upstream clone at ${HOLMESGPT_DIR} has uncommitted changes;" >&2
+  echo "         recorded version may not be reproducible." >&2
+fi
+
+cat > "${REPO_ROOT}/UPSTREAM_VERSION" <<EOF
+# Upstream HolmesGPT chart version synced by scripts/sync.sh. Do not edit by hand.
+ref:  ${UPSTREAM_REF}
+sha:  ${UPSTREAM_SHA}
+date: ${UPSTREAM_DATE}
+EOF
+
+echo "==> Recorded upstream version ${UPSTREAM_REF} in UPSTREAM_VERSION"
 echo "==> Done. Review the diff with: git -C ${REPO_ROOT} status"
