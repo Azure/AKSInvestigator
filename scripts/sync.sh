@@ -70,6 +70,25 @@ if [[ "${UPSTREAM_REF}" == *-dirty ]]; then
   echo "         recorded version may not be reproducible." >&2
 fi
 
+# Pin the chart's HolmesGPT image tag to the upstream version we just synced, so
+# the AKSInvestigator chart deploys the same HolmesGPT version as the original
+# upstream chart. Upstream ships a `holmes:0.0.0` placeholder that it only fills
+# in at its own release time; here we fill it in with the synced ref. This is a
+# deliberate fork behavior re-applied on every sync, so values.yaml never has to
+# be hand-patched.
+VALUES="${DST_CHART}/values.yaml"
+if [[ "${UPSTREAM_REF}" != "unknown" && -f "${VALUES}" ]]; then
+  # Strip a leading `v` so the tag is a clean SemVer (e.g. v0.36.0 -> 0.36.0).
+  IMAGE_TAG="${UPSTREAM_REF#v}"
+  if grep -qE '^image:[[:space:]]*holmes:' "${VALUES}"; then
+    sed -i -E "s|^(image:[[:space:]]*holmes:).*|\1${IMAGE_TAG}|" "${VALUES}"
+    echo "==> Pinned chart image tag to holmes:${IMAGE_TAG} in values.yaml"
+  else
+    echo "warning: could not find 'image: holmes:<tag>' in ${VALUES};" >&2
+    echo "         image tag left unchanged." >&2
+  fi
+fi
+
 cat > "${REPO_ROOT}/UPSTREAM_VERSION" <<EOF
 # Upstream HolmesGPT chart version synced by scripts/sync.sh. Do not edit by hand.
 ref:  ${UPSTREAM_REF}

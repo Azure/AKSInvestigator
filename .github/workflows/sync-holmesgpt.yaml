@@ -104,7 +104,10 @@ jobs:
       - name: Mirror HolmesGPT image from Docker Hub to ACR
         run: |
           set -euo pipefail
+          # Strip a leading `v` so the mirrored tag matches the chart image tag
+          # that scripts/sync.sh pins in values.yaml (e.g. v0.36.0 -> 0.36.0).
           REF="${{ inputs.ref }}"
+          REF="${REF#v}"
           ACR="${{ secrets.AZURE_CONTAINER_REGISTRY }}"
           SRC="robustadev/holmes:${REF}"
           DST="${ACR}.azurecr.io/holmes:${REF}"
