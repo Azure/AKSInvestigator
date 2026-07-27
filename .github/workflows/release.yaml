@@ -1,0 +1,62 @@
+name: Release AKS Investigator chart
+
+# Publish the AKSInvestigator Helm chart to the AKS ACR when an AKS Investigator
+# release is cut. Cutting a release = pushing a `vX.Y.Z` git tag on `main` after
+# the upstream sync PR (see .github/workflows/sync-holmesgpt.yaml) has merged.
+#
+# The chart `version` is the AKS Investigator release version (from the tag),
+# while `appVersion` is the upstream HolmesGPT image tag recorded in
+# UPSTREAM_VERSION by scripts/sync.sh — i.e. the image already mirrored to ACR
+# at sync time.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish-chart:
+    runs-on: [self-hosted, e2e]
+    steps:
+      - name: Checkout AKSInvestigator
+        uses: actions/checkout@v4
+
+      - name: Resolve chart version and app version
+        id: versions
+        run: |
+          set -euo pipefail
+          # Chart version = release tag without the leading `v` (SemVer).
+          VERSION="${GITHUB_REF_NAME#v}"
+          # App version = upstream HolmesGPT image tag from UPSTREAM_VERSION.
+          if [[ ! -f UPSTREAM_VERSION ]]; then
+            echo "::error::UPSTREAM_VERSION not found; run scripts/sync.sh first"
+            exit 1
+          fi
+          APP_VERSION="$(awk '/^ref:/ {print $2; exit}' UPSTREAM_VERSION)"
+          if [[ -z "${APP_VERSION}" ]]; then
+            echo "::error::could not parse ref from UPSTREAM_VERSION"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "app_version=${APP_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Chart version: ${VERSION}  appVersion: ${APP_VERSION}"
+
+      - name: Log in to Azure (runner managed identity)
+        run: az login --identity
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ secrets.AZURE_CONTAINER_REGISTRY }}"
+
+      - name: Package and push Helm chart to ACR
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.versions.outputs.version }}"
+          APP_VERSION="${{ steps.versions.outputs.app_version }}"
+          ACR="${{ secrets.AZURE_CONTAINER_REGISTRY }}"
+          helm package ./helm \
+            --version "${VERSION}" \
+            --app-version "${APP_VERSION}" \
+            -d /tmp/chart
+          helm push "/tmp/chart/holmes-${VERSION}.tgz" "oci://${ACR}.azurecr.io/helm"
