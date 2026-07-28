@@ -66,10 +66,19 @@ jobs:
           HOLMESGPT_DIR=/tmp/holmesgpt ./scripts/sync.sh
           echo "${{ steps.upstream.outputs.ref }}" > .upstream-version
 
+      - name: Generate app token
+        id: app-token
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_KEY }}
+
       - name: Create pull request
         if: steps.check.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
+          token: ${{ steps.app-token.outputs.token }}
           commit-message: "chore(helm): sync HolmesGPT chart to ${{ steps.upstream.outputs.ref }}"
           branch: "sync/holmesgpt-${{ steps.upstream.outputs.ref }}"
           delete-branch: true
