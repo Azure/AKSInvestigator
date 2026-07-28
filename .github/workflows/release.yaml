@@ -1,11 +1,11 @@
 name: Release AKS Investigator chart
 
 # Show the release tag in the run title (Actions list), e.g.
-# "Release AKS Investigator chart v1.4.0".
+# "Release AKS Investigator chart 1.4.0".
 run-name: Release AKS Investigator chart ${{ github.ref_name }}
 
 # Publish the AKSInvestigator Helm chart to the AKS ACR when an AKS Investigator
-# release is cut. Cutting a release = pushing a `vX.Y.Z` git tag on `main` after
+# release is cut. Cutting a release = pushing a `X.Y.Z` git tag on `main` after
 # the upstream sync PR (see .github/workflows/sync-holmesgpt.yaml) has merged.
 #
 # The chart `version` is the AKS Investigator release version (from the tag),
@@ -15,7 +15,9 @@ run-name: Release AKS Investigator chart ${{ github.ref_name }}
 on:
   push:
     tags:
-      - "v*"
+      # SemVer release tags (glob, not regex), e.g. `1.4.0` or the
+      # `0.0.1-alpha.1` pre-releases used to test main.
+      - "[0-9]*.*.*"
 
 permissions:
   contents: read
