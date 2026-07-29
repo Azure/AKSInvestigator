@@ -52,9 +52,9 @@ spec:
       containers:
         - name: vllm
           {{- if $gpu }}
-          image: {{ .gpuImage | default "vllm/vllm-openai:v0.10.1.1" | quote }}
+          image: {{ .gpuImage | default "vllm/vllm-openai:v0.26.0" | quote }}
           {{- else }}
-          image: {{ .cpuImage | default "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.9.2" | quote }}
+          image: {{ .cpuImage | default "vllm/vllm-openai-cpu:v0.26.0" | quote }}
           {{- end }}
           imagePullPolicy: IfNotPresent
           args:
@@ -77,7 +77,9 @@ spec:
             - --max-model-len={{ .maxModelLen | default 65536 }}
             - --gpu-memory-utilization={{ .gpuMemoryUtilization | default "0.90" }}
             {{- else }}
-            - --device=cpu
+            # NOTE: no --device flag. The vllm-openai-cpu image auto-detects the
+            # CPU platform. Passing --device=cpu on vLLM >=0.26.0 is parsed as
+            # device_ids=['cpu'] and aborts with "Non-integer device ID 'cpu'".
             - --dtype=float32
             # CPU: smaller default context; CPU inference at 64k is impractical.
             # Override via .Values.saturn.maxModelLen if your Intel pool has the
