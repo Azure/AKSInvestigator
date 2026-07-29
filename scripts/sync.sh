@@ -89,6 +89,15 @@ if [[ "${UPSTREAM_REF}" != "unknown" && -f "${VALUES}" ]]; then
   fi
 fi
 
+# Rebrand the chart name from upstream's `holmes` to `aks-investigator`. Chart.yaml
+# is synced verbatim from upstream, so this rename must be re-applied on every sync
+# (idempotent) rather than hand-patched, or the next sync would revert it.
+CHART="${DST_CHART}/Chart.yaml"
+if [[ -f "${CHART}" ]] && grep -qE '^name:[[:space:]]*holmes[[:space:]]*$' "${CHART}"; then
+  sed -i -E 's|^name:[[:space:]]*holmes[[:space:]]*$|name: aks-investigator|' "${CHART}"
+  echo "==> Renamed chart to aks-investigator in Chart.yaml"
+fi
+
 cat > "${REPO_ROOT}/UPSTREAM_VERSION" <<EOF
 # Upstream HolmesGPT chart version synced by scripts/sync.sh. Do not edit by hand.
 ref:  ${UPSTREAM_REF}

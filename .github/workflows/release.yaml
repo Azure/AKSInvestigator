@@ -65,4 +65,4 @@ jobs:
             --version "${VERSION}" \
             --app-version "${APP_VERSION}" \
             -d /tmp/chart
-          helm push "/tmp/chart/holmes-${VERSION}.tgz" "oci://${ACR}.azurecr.io/helm"
+          helm push "/tmp/chart/aks-investigator-${VERSION}.tgz" "oci://${ACR}.azurecr.io/helm"
