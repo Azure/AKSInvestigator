@@ -1,0 +1,139 @@
+name: Mirror Saturn vLLM images to ACR
+
+# Show what is being mirrored in the run title (Actions list), e.g.
+# "Mirror Saturn vLLM images to ACR v0.26.0".
+run-name: >-
+  Mirror Saturn vLLM images to ACR ${{ inputs.tag || 'floor+newer' }}
+
+# Standalone pipeline — INDEPENDENT of the Helm chart workflows
+# (sync-holmesgpt.yaml, release.yaml). It only stocks the AKS ACR with the
+# upstream vLLM images that Saturn uses; it NEVER edits the chart.
+#
+# Saturn pins its images in helm/values-saturn.yaml:
+#   gpuImage: vllm/vllm-openai:v0.26.0
+#   cpuImage: vllm/vllm-openai-cpu:v0.26.0
+# Adopting a newer vLLM version stays a MANUAL edit to values-saturn.yaml — this
+# pipeline does not bump the chart or open PRs. It merely mirrors the current
+# floor (v0.26.0) and any newer vX.Y.Z release into ACR so installs have a
+# private, rate-limit-free source to pull from once repointed.
+#
+# ACR layout: <acr>.azurecr.io/saturn/vllm-openai:<tag>
+#             <acr>.azurecr.io/saturn/vllm-openai-cpu:<tag>
+on:
+  schedule:
+    # Weekly, Monday 06:17 UTC. Off-peak, non-:00 minute to avoid the fleet-wide
+    # top-of-hour spike.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Specific vLLM tag to mirror, e.g. v0.26.0. Leave empty to mirror the floor (v0.26.0) plus any newer release."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Baseline: the tag currently pinned in helm/values-saturn.yaml. The pipeline
+  # mirrors this and any newer vX.Y.Z release, never older. Bump this in lockstep
+  # if/when you manually raise the pin in values-saturn.yaml.
+  FLOOR_TAG: v0.26.0
+  # Both images share the same version tag. Space-separated Docker Hub repos
+  # under the `vllm` namespace.
+  IMAGES: "vllm-openai vllm-openai-cpu"
+
+jobs:
+  mirror:
+    runs-on: [self-hosted, e2e]
+    steps:
+      - name: Checkout AKSInvestigator
+        uses: actions/checkout@v5
+
+      - name: Log in to Azure (runner managed identity)
+        run: az login --identity
+
+      - name: Resolve tags to mirror
+        id: tags
+        run: |
+          set -euo pipefail
+          FLOOR="${FLOOR_TAG}"
+          INPUT_TAG="${{ inputs.tag }}"
+
+          if [[ -n "${INPUT_TAG}" ]]; then
+            # Manual override: mirror exactly the requested tag.
+            echo "Manual dispatch tag: ${INPUT_TAG}"
+            echo "list=${INPUT_TAG}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # Scheduled / empty-input path: query Docker Hub for vllm/vllm-openai
+          # tags, keep vX.Y.Z SemVer tags >= FLOOR. The CPU image tracks the same
+          # tags, so querying the GPU repo is sufficient.
+          echo "Resolving tags >= ${FLOOR} from Docker Hub…"
+          url="https://hub.docker.com/v2/repositories/vllm/vllm-openai/tags?page_size=100"
+          raw=""
+          while [[ -n "${url}" && "${url}" != "null" ]]; do
+            page="$(curl -fsSL "${url}")"
+            raw="${raw}"$'\n'"$(echo "${page}" | jq -r '.results[].name')"
+            url="$(echo "${page}" | jq -r '.next')"
+          done
+
+          # Keep only strict vX.Y.Z tags, drop the leading v for version compare,
+          # keep those >= FLOOR, then restore the v prefix. sort -V handles SemVer.
+          floor_num="${FLOOR#v}"
+          selected="$(echo "${raw}" \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sed 's/^v//' \
+            | sort -V -u \
+            | awk -v floor="${floor_num}" '
+                { if (cmp(floor, $0) <= 0) print "v" $0 }
+                function cmp(a, b,   na, nb, i) {
+                  split(a, na, "."); split(b, nb, ".");
+                  for (i = 1; i <= 3; i++) {
+                    if (na[i]+0 < nb[i]+0) return -1;
+                    if (na[i]+0 > nb[i]+0) return 1;
+                  }
+                  return 0;
+                }' \
+            | paste -sd' ' -)"
+
+          if [[ -z "${selected}" ]]; then
+            echo "::warning::no tags >= ${FLOOR} found; defaulting to floor only"
+            selected="${FLOOR}"
+          fi
+          echo "Tags to mirror: ${selected}"
+          echo "list=${selected}" >> "${GITHUB_OUTPUT}"
+
+      - name: Mirror images to ACR
+        env:
+          ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+          TAGS: ${{ steps.tags.outputs.list }}
+        run: |
+          set -euo pipefail
+          summary=""
+          for tag in ${TAGS}; do
+            for img in ${IMAGES}; do
+              dst_repo="saturn/${img}"
+              src="docker.io/vllm/${img}:${tag}"
+              # Idempotency: skip if the tag already exists in ACR so we don't
+              # re-import multi-GB layers every run.
+              if az acr repository show-tags \
+                   --name "${ACR}" \
+                   --repository "${dst_repo}" \
+                   --query "contains(@, '${tag}')" -o tsv 2>/dev/null | grep -qx true; then
+                echo "skip (present): ${dst_repo}:${tag}"
+                summary="${summary}\n  skip  ${dst_repo}:${tag}"
+                continue
+              fi
+              echo "import: ${src} -> ${ACR}.azurecr.io/${dst_repo}:${tag}"
+              # Server-side registry-to-registry copy — no local docker pull of
+              # the (large) vLLM images onto the runner.
+              az acr import \
+                --name "${ACR}" \
+                --source "${src}" \
+                --image "${dst_repo}:${tag}"
+              summary="${summary}\n  done  ${dst_repo}:${tag}"
+            done
+          done
+          echo -e "==> Mirror summary:${summary}"

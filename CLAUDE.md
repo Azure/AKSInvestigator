@@ -49,6 +49,22 @@ CPU vs GPU is selected by `saturn.gpu` (default `false`):
 - `saturn.gpu=true` — GPU vLLM, `--dtype=auto`, `maxModelLen=65536`, requests
   `nvidia.com/gpu: 1`. Set `saturn.nodeSelector` to land on the GPU pool.
 
+### Mirroring the vLLM images to ACR
+
+`.github/workflows/mirror-vllm-images.yaml` is a **standalone** pipeline
+(independent of `sync-holmesgpt.yaml` and `release.yaml`) that mirrors the
+upstream vLLM images Saturn uses — `vllm/vllm-openai` (GPU) and
+`vllm/vllm-openai-cpu` (CPU) — from Docker Hub into the AKS ACR as
+`saturn/vllm-openai:<tag>` and `saturn/vllm-openai-cpu:<tag>`, via server-side
+`az acr import`. It runs weekly on a schedule and on manual dispatch (with an
+optional `tag` input). It mirrors the floor tag `FLOOR_TAG` (the version pinned
+in `values-saturn.yaml`, currently `v0.26.0`) plus any newer `vX.Y.Z` release,
+and is idempotent (skips tags already in ACR).
+
+It **never edits the chart** — bumping the vLLM version Saturn actually runs is a
+manual edit to `gpuImage`/`cpuImage` in `values-saturn.yaml`. If you raise that
+pin, also bump `FLOOR_TAG` in the workflow.
+
 ## Layout
 
 ```
