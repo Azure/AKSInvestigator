@@ -81,10 +81,12 @@ spec:
             # CPU platform. Passing --device=cpu on vLLM >=0.26.0 is parsed as
             # device_ids=['cpu'] and aborts with "Non-integer device ID 'cpu'".
             - --dtype=float32
-            # CPU: smaller default context; CPU inference at 64k is impractical.
-            # Override via .Values.saturn.maxModelLen if your Intel pool has the
-            # memory and you accept the latency tradeoff.
-            - --max-model-len={{ .maxModelLen | default 4096 }}
+            # CPU: unified with the GPU variant at 65536 so HolmesGPT sees the
+            # same context window regardless of where saturn is served. Serving
+            # a full 65536-token window on CPU also requires VLLM_CPU_KVCACHE_SPACE
+            # (below) to be large enough — --max-model-len alone lets vLLM start
+            # but long requests are rejected if the KV pool is too small.
+            - --max-model-len={{ .maxModelLen | default 65536 }}
             {{- end }}
             {{- with .extraArgs }}
             {{- toYaml . | nindent 12 }}
@@ -95,6 +97,13 @@ spec:
             {{- if not $gpu }}
             - name: VLLM_TARGET_DEVICE
               value: cpu
+            # CPU KV-cache pool size in GiB. On CPU vLLM this (NOT
+            # gpu-memory-utilization) governs how many tokens the KV cache can
+            # hold. Default is 4 GiB (~28k tokens) which is too small for a
+            # 65536-token window; ~9 GiB holds one full sequence. Sized with
+            # headroom and kept in sync with resources.cpu below.
+            - name: VLLM_CPU_KVCACHE_SPACE
+              value: {{ .cpuKvCacheSpace | default "10" | quote }}
             {{- end }}
             {{- with .extraEnv }}
             {{- toYaml . | nindent 12 }}
@@ -145,11 +154,11 @@ spec:
               nvidia.com/gpu: {{ .resources.gpu.limits.gpu | default "1" | quote }}
             {{- else }}
             requests:
-              cpu: {{ .resources.cpu.requests.cpu | default "4" | quote }}
-              memory: {{ .resources.cpu.requests.memory | default "16Gi" | quote }}
+              cpu: {{ .resources.cpu.requests.cpu | default "6" | quote }}
+              memory: {{ .resources.cpu.requests.memory | default "26Gi" | quote }}
             limits:
               cpu: {{ .resources.cpu.limits.cpu | default "8" | quote }}
-              memory: {{ .resources.cpu.limits.memory | default "32Gi" | quote }}
+              memory: {{ .resources.cpu.limits.memory | default "40Gi" | quote }}
             {{- end }}
           volumeMounts:
             - name: cache

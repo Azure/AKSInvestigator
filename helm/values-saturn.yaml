@@ -32,12 +32,19 @@ saturn:
   model: saturn-ms/saturn-0202
   servedModelName: saturn-vllm
 
-  # GPU default is 65536 (saturn-0202 supports 262144 natively but KV cache
-  # bites on a single A100 past ~65k). CPU default is 4096 — inference at
-  # 64k on CPU is impractical. The template picks the right one based on
-  # `gpu` if you leave this unset.
+  # Unified context window: both GPU and CPU variants serve 65536 so HolmesGPT
+  # sees the same window regardless of where saturn runs. saturn-0202 supports
+  # 262144 natively (config.json max_position_embeddings) but 65536 balances KV
+  # cache footprint against HolmesGPT's long contexts. The template picks 65536
+  # for either variant if you leave this unset.
   maxModelLen: ""
   gpuMemoryUtilization: "0.90"
+
+  # CPU-only: size (GiB) of the vLLM CPU KV-cache pool (VLLM_CPU_KVCACHE_SPACE).
+  # This — not gpuMemoryUtilization — governs CPU KV capacity. ~9 GiB holds one
+  # full 65536-token sequence; 10 leaves headroom. Keep in sync with
+  # resources.cpu.memory below. Ignored for the GPU variant.
+  cpuKvCacheSpace: "10"
 
   replicas: 1
   shmSize: 2Gi
@@ -59,12 +66,14 @@ saturn:
         memory: "16Gi"
         gpu: "1"
     cpu:
+      # Sized for --dtype=float32 (~16 GiB weights) + 10 GiB CPU KV cache
+      # (VLLM_CPU_KVCACHE_SPACE) + runtime overhead to serve a 65536 window.
       requests:
-        cpu: "4"
-        memory: "16Gi"
+        cpu: "6"
+        memory: "26Gi"
       limits:
         cpu: "8"
-        memory: "32Gi"
+        memory: "40Gi"
 
   # Scheduling. On AKS GPU pools you usually want `agentpool: gpu` (or
   # `kubernetes.azure.com/agentpool: gpu`). The CPU vLLM image requires
