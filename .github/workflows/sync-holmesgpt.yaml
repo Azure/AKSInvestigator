@@ -96,36 +96,3 @@ jobs:
             automated
             dependencies
 
-  # Mirror the upstream HolmesGPT image into the AKS ACR at sync time. We do not
-  # build the image ourselves (no HolmesGPT source in this repo) — we mirror the
-  # upstream image from Docker Hub (robustadev/holmes) into the ACR, keyed on the
-  # upstream tag. The Helm chart is NOT published here: that happens only after
-  # the sync PR is merged and an AKS Investigator release tag is pushed — see
-  # .github/workflows/release.yaml.
-  mirror-image:
-    runs-on: [self-hosted, e2e]
-    steps:
-      - name: Checkout AKSInvestigator
-        uses: actions/checkout@v5
-
-      - name: Log in to Azure (runner managed identity)
-        run: az login --identity
-
-      - name: Log in to ACR
-        run: az acr login --name "${{ secrets.AZURE_CONTAINER_REGISTRY }}"
-
-      - name: Mirror HolmesGPT image from Docker Hub to ACR
-        run: |
-          set -euo pipefail
-          # Strip a leading `v` so the mirrored tag matches the chart image tag
-          # that scripts/sync.sh pins in values.yaml (e.g. v0.36.0 -> 0.36.0).
-          REF="${{ inputs.ref }}"
-          REF="${REF#v}"
-          ACR="${{ secrets.AZURE_CONTAINER_REGISTRY }}"
-          SRC="robustadev/holmes:${REF}"
-          DST="${ACR}.azurecr.io/holmes:${REF}"
-          echo "Mirroring ${SRC} -> ${DST}"
-          docker pull "${SRC}"
-          docker tag "${SRC}" "${DST}"
-          docker push "${DST}"
-

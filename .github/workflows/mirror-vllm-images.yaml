@@ -45,7 +45,7 @@ env:
 
 jobs:
   mirror:
-    runs-on: [self-hosted, e2e]
+    runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
     steps:
       - name: Checkout AKSInvestigator
         uses: actions/checkout@v5
