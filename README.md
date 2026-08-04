@@ -1,9 +1,13 @@
 # AKSInvestigator
 
-AKS-flavored fork of the [HolmesGPT](https://github.com/HolmesGPT/holmesgpt)
-Helm chart. Tracks the upstream `helm/holmes` chart verbatim (no patches to
-`values.yaml`) and layers AKS-specific add-ons on top via
-`helm/templates/saturn/` + `helm/values-saturn.yaml`.
+AKS Investigator is an AI-powered troubleshooting agent for AKS/Kubernetes
+clusters: it deploys [HolmesGPT](https://github.com/HolmesGPT/holmesgpt) — which
+investigates incidents, analyzes cluster state, and surfaces root causes — into
+your cluster, bundled with an in-cluster LLM so it works out of the box with no
+external model or API key required. It packages the upstream HolmesGPT Helm
+chart (tracked verbatim) and layers an AKS-specific Saturn vLLM add-on on top,
+so you can `helm install` and start diagnosing immediately, or bring your own
+model when you'd rather use an external provider.
 
 ## What's added vs upstream
 
