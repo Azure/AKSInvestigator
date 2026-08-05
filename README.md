@@ -9,6 +9,9 @@ chart (tracked verbatim) and layers an AKS-specific Saturn vLLM add-on on top,
 so you can `helm install` and start diagnosing immediately, or bring your own
 model when you'd rather use an external provider.
 
+After installation, the bundled [`kubectl investigate`](kubectl-plugin/README.md)
+plugin provides a direct CLI for asking the in-cluster agent questions.
+
 ## What's added vs upstream
 
 - **In-cluster Saturn vLLM model** (`helm/templates/saturn/saturn-vllm.yaml`,
@@ -36,6 +39,9 @@ model when you'd rather use an external provider.
 
 ```
 AKSInvestigator/
+├── kubectl-plugin/              # kubectl investigate client
+│   ├── kubectl-investigate
+│   └── README.md
 ├── helm/                       # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml
 │   ├── values.yaml             # byte-identical to upstream — do not patch
@@ -90,6 +96,17 @@ helm install aksi ./helm -n holmes --create-namespace \
 helm install aksi ./helm -n holmes --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
+
+## Install the kubectl plugin
+
+```bash
+install -m 0755 kubectl-plugin/kubectl-investigate ~/.local/bin/kubectl-investigate
+kubectl investigate "are any workloads unhealthy?"
+```
+
+The plugin defaults to the `aksi` release in namespace `holmes`. See the
+[plugin documentation](kubectl-plugin/README.md) for custom release and
+namespace settings.
 
 ## Saturn model configuration
 

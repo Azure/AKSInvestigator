@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Adapted from https://github.com/mainred/investigate.
+# kubectl plugin that asks the in-cluster AKS Investigator to investigate a question.
+
+set -euo pipefail
+
+NAMESPACE="${HOLMES_NAMESPACE:-holmes}"
+SELECTOR="${HOLMES_SELECTOR:-app=holmes}"
+RELEASE="${HOLMES_RELEASE:-aksi}"
+DEPLOY="${HOLMES_DEPLOY:-}"
+HOME_DIR="${HOLMES_HOME:-/tmp}"
+
+usage() {
+  cat >&2 <<EOF
+kubectl-investigate: ask AKS Investigator to investigate a cluster question.
+
+Usage:
+  kubectl investigate "<question>" [holmes_cli flags...]
+
+Examples:
+  kubectl investigate "how many pods are in my cluster"
+  kubectl investigate "why is pod X crashlooping" --model saturn-vllm
+
+Environment:
+  HOLMES_NAMESPACE  namespace containing AKS Investigator (default: holmes)
+  HOLMES_RELEASE    Helm release to target (default: aksi)
+  HOLMES_DEPLOY     deployment name; overrides release and discovery
+  HOLMES_SELECTOR   fallback deployment selector (default: app=holmes)
+  HOLMES_HOME       HOME inside the pod (default: /tmp)
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 64
+fi
+
+if ! command -v kubectl >/dev/null 2>&1; then
+  echo "kubectl-investigate: kubectl was not found on PATH." >&2
+  exit 127
+fi
+
+if [[ -z "$DEPLOY" ]]; then
+  release_deploy="${RELEASE}-holmes"
+  if kubectl get deployment -n "$NAMESPACE" "$release_deploy" >/dev/null 2>&1; then
+    DEPLOY="$release_deploy"
+  else
+    deployments=()
+    while IFS= read -r deployment; do
+      [[ -n "$deployment" ]] && deployments+=("${deployment#deployment.apps/}")
+    done < <(kubectl get deployments -n "$NAMESPACE" -l "$SELECTOR" -o name 2>/dev/null || true)
+
+    case "${#deployments[@]}" in
+      0)
+        echo "kubectl-investigate: no Holmes deployment found in namespace '$NAMESPACE'." >&2
+        echo "  Looked for '$release_deploy', then selector '$SELECTOR'." >&2
+        echo "  Set HOLMES_NAMESPACE, HOLMES_RELEASE, HOLMES_DEPLOY, or HOLMES_SELECTOR to override." >&2
+        exit 1
+        ;;
+      1)
+        DEPLOY="${deployments[0]}"
+        ;;
+      *)
+        echo "kubectl-investigate: multiple Holmes deployments match '$SELECTOR' in namespace '$NAMESPACE':" >&2
+        printf '  %s\n' "${deployments[@]}" >&2
+        echo "  Set HOLMES_RELEASE or HOLMES_DEPLOY to choose one." >&2
+        exit 1
+        ;;
+    esac
+  fi
+fi
+
+exec_flags=()
+if [[ -t 0 && -t 1 ]]; then
+  exec_flags=(-it)
+fi
+
+default_mode=(--no-interactive)
+for argument in "$@"; do
+  case "$argument" in
+    -i|--interactive|-n|--no-interactive)
+      default_mode=()
+      break
+      ;;
+  esac
+done
+
+exec kubectl exec "${exec_flags[@]}" -n "$NAMESPACE" "deploy/$DEPLOY" -- \
+  env "HOME=$HOME_DIR" python holmes_cli.py ask "$@" "${default_mode[@]}"
