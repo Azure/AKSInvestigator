@@ -1,4 +1,6 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+{{- $saturn := .Values.saturn | default dict -}}
+{{- $saturnEnabled := and (empty .Values.modelList) (get $saturn "enabled") -}}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled $saturnEnabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -239,7 +241,21 @@ data:
       plain scalars in `key: value` form, so this anchor covers every
       real-world usage.
     */ -}}
-    {{- $rendered := .Values.modelList | toYaml -}}
+    {{- $models := .Values.modelList -}}
+    {{- if $saturnEnabled -}}
+    {{- $gpu := get $saturn "gpu" | default false -}}
+    {{- $defaultMaxModelLen := ternary 262144 65536 $gpu -}}
+    {{- $variantMaxModelLen := ternary (get $saturn "gpuMaxModelLen") (get $saturn "cpuMaxModelLen") $gpu -}}
+    {{- $maxModelLen := get $saturn "maxModelLen" | default $variantMaxModelLen | default $defaultMaxModelLen -}}
+    {{- $servedName := get $saturn "servedModelName" | default "saturn-vllm" -}}
+    {{- $models = dict $servedName (dict
+          "api_base" (printf "http://saturn-vllm.%s.svc.cluster.local:8000/v1" .Release.Namespace)
+          "api_key" "dummy"
+          "model" (printf "openai/%s" $servedName)
+          "custom_args" (dict "max_context_size" $maxModelLen)
+        ) -}}
+    {{- end -}}
+    {{- $rendered := $models | toYaml -}}
     {{- $replacement := printf ": \"%s env.${1} %s\"" "{{" "}}" -}}
     {{- $rewritten := regexReplaceAll "(?m): envRef:([A-Za-z_][A-Za-z0-9_]*)$" $rendered $replacement -}}
     {{ $rewritten | nindent 4 }}

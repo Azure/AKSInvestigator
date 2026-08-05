@@ -1,4 +1,6 @@
 {{- $tls := .Values.tls | default dict -}}
+{{- $saturn := .Values.saturn | default dict -}}
+{{- $saturnEnabled := and (empty .Values.modelList) (get $saturn "enabled") -}}
 {{- if and $tls.enabled (not $tls.secretName) }}
 {{- fail "tls.enabled requires tls.secretName (a secret providing tls.crt and tls.key)" }}
 {{- end }}
@@ -39,7 +41,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.saturn | toYaml | sha256sum }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
@@ -153,6 +155,10 @@ spec:
             value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
+          {{- if $saturnEnabled }}
+          - name: OVERRIDE_MAX_OUTPUT_TOKEN
+            value: "20000"
+          {{- end }}
           {{- if $tls.enabled }}
           - name: HOLMES_SSL_CERTFILE
             value: /etc/holmes/tls/tls.crt

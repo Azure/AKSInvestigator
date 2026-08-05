@@ -25,6 +25,9 @@ for the original standalone manifests this template is derived from.
 {{- $gpu := .gpu | default false -}}
 {{- $servedName := .servedModelName | default "saturn-vllm" -}}
 {{- $model := .model | default "saturn-ms/saturn-0202" -}}
+{{- $defaultMaxModelLen := ternary 262144 65536 $gpu -}}
+{{- $variantMaxModelLen := ternary .gpuMaxModelLen .cpuMaxModelLen $gpu -}}
+{{- $maxModelLen := .maxModelLen | default $variantMaxModelLen | default $defaultMaxModelLen -}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -70,23 +73,16 @@ spec:
             - --tool-call-parser=hermes
             {{- if $gpu }}
             - --dtype=auto
-            # GPU: bumped from vLLM default 8192 -> 65536. saturn-0202 (qwen3)
-            # supports up to 262144 natively (config.json max_position_embeddings);
-            # 65536 leaves headroom for HolmesGPT long contexts without
-            # exhausting GPU KV cache on a single A100.
-            - --max-model-len={{ .maxModelLen | default 65536 }}
+            # GPU: use saturn-0202's native context limit from config.json.
+            - --max-model-len={{ $maxModelLen }}
             - --gpu-memory-utilization={{ .gpuMemoryUtilization | default "0.90" }}
             {{- else }}
             # NOTE: no --device flag. The vllm-openai-cpu image auto-detects the
             # CPU platform. Passing --device=cpu on vLLM >=0.26.0 is parsed as
             # device_ids=['cpu'] and aborts with "Non-integer device ID 'cpu'".
             - --dtype=float32
-            # CPU: unified with the GPU variant at 65536 so HolmesGPT sees the
-            # same context window regardless of where saturn is served. Serving
-            # a full 65536-token window on CPU also requires VLLM_CPU_KVCACHE_SPACE
-            # (below) to be large enough — --max-model-len alone lets vLLM start
-            # but long requests are rejected if the KV pool is too small.
-            - --max-model-len={{ .maxModelLen | default 65536 }}
+            # CPU: use a smaller context than GPU to limit KV-cache demand.
+            - --max-model-len={{ $maxModelLen }}
             {{- end }}
             {{- with .extraArgs }}
             {{- toYaml . | nindent 12 }}
@@ -99,9 +95,8 @@ spec:
               value: cpu
             # CPU KV-cache pool size in GiB. On CPU vLLM this (NOT
             # gpu-memory-utilization) governs how many tokens the KV cache can
-            # hold. Default is 4 GiB (~28k tokens) which is too small for a
-            # 65536-token window; ~9 GiB holds one full sequence. Sized with
-            # headroom and kept in sync with resources.cpu below.
+            # hold. Keep this sized with resources.cpu below when increasing
+            # cpuMaxModelLen beyond its conservative default.
             - name: VLLM_CPU_KVCACHE_SPACE
               value: {{ .cpuKvCacheSpace | default "10" | quote }}
             {{- end }}

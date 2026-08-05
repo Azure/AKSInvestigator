@@ -4,9 +4,8 @@
 #
 # This script pulls the latest `helm/holmes` chart from a local clone of
 # https://github.com/HolmesGPT/holmesgpt and copies it into ./helm/ in this
-# repo, preserving the AKSInvestigator-specific Saturn add-ons under
-# ./helm/templates/saturn/ (those files are listed in KEEP_FILES below and are
-# restored after the rsync).
+# repo, preserving AKSInvestigator-only Saturn files and applying the tracked
+# Saturn integration patch to upstream templates in a staging directory.
 #
 # Usage:
 #   HOLMESGPT_DIR=/path/to/holmesgpt ./sync.sh
@@ -19,9 +18,10 @@ HOLMESGPT_DIR="${HOLMESGPT_DIR:-${HOME}/llm/holmesgpt}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_CHART="${HOLMESGPT_DIR}/helm/holmes"
 DST_CHART="${REPO_ROOT}/helm"
+SATURN_PATCH="${REPO_ROOT}/patches/saturn-integration.patch"
 
-# Files/directories under ./helm/ that are AKSInvestigator-specific and must be
-# preserved across syncs. Paths are relative to ${DST_CHART}.
+# Files/directories under ./helm/ that contain AKSInvestigator-specific behavior
+# and must be preserved across syncs. Paths are relative to ${DST_CHART}.
 KEEP_FILES=(
   "templates/saturn"
   "values-saturn.yaml"
@@ -33,31 +33,40 @@ if [[ ! -d "${SRC_CHART}" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${SATURN_PATCH}" ]]; then
+  echo "error: Saturn integration patch not found at ${SATURN_PATCH}" >&2
+  exit 1
+fi
+
 echo "==> Syncing helm chart from ${SRC_CHART}"
 echo "    into                  ${DST_CHART}"
 
-# Stash the AKSInvestigator-specific files so rsync --delete doesn't drop them.
+# Build the complete chart in a temporary staging area. If the Saturn patch no
+# longer applies to a new upstream version, fail before modifying ./helm.
 STASH="$(mktemp -d)"
 trap 'rm -rf "${STASH}"' EXIT
+
+STAGED_CHART="${STASH}/helm"
+mkdir -p "${STAGED_CHART}"
+rsync -a --delete "${SRC_CHART}/" "${STAGED_CHART}/"
 
 for path in "${KEEP_FILES[@]}"; do
   abs="${DST_CHART}/${path}"
   if [[ -e "${abs}" ]]; then
-    mkdir -p "${STASH}/$(dirname "${path}")"
-    cp -a "${abs}" "${STASH}/${path}"
+    mkdir -p "${STAGED_CHART}/$(dirname "${path}")"
+    cp -a "${abs}" "${STAGED_CHART}/${path}"
   fi
 done
+
+if ! git -C "${STASH}" apply --check "${SATURN_PATCH}"; then
+  echo "error: Saturn integration patch does not apply to this upstream chart" >&2
+  echo "       update patches/saturn-integration.patch for the new release" >&2
+  exit 1
+fi
+git -C "${STASH}" apply "${SATURN_PATCH}"
 
 mkdir -p "${DST_CHART}"
-rsync -a --delete "${SRC_CHART}/" "${DST_CHART}/"
-
-# Restore the AKSInvestigator-specific files.
-for path in "${KEEP_FILES[@]}"; do
-  if [[ -e "${STASH}/${path}" ]]; then
-    mkdir -p "${DST_CHART}/$(dirname "${path}")"
-    cp -a "${STASH}/${path}" "${DST_CHART}/${path}"
-  fi
-done
+rsync -a --delete "${STAGED_CHART}/" "${DST_CHART}/"
 
 # Record which upstream commit we synced. Written at the repo root (outside
 # ${DST_CHART}) so rsync --delete never touches it.

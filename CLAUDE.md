@@ -7,9 +7,10 @@ for AKS with AKS-specific add-ons layered on top.
 
 ## Core model: sync + overlay
 
-`helm/` is synced **verbatim** from the upstream `holmesgpt/helm/holmes` chart.
-On top of that, a small set of AKSInvestigator-only files are preserved across
-syncs. Understanding this split is essential before editing anything:
+`helm/` is synced from the upstream `holmesgpt/helm/holmes` chart. On top of
+that, AKSInvestigator-only files are preserved and a small integration patch is
+applied to upstream templates. Understanding this split is essential before
+editing anything:
 
 - **Upstream-tracked (do NOT hand-patch):** everything under `helm/` that comes
   from upstream, most importantly `helm/values.yaml` (kept byte-identical to
@@ -17,11 +18,15 @@ syncs. Understanding this split is essential before editing anything:
 - **AKSInvestigator-only (safe to edit, preserved by `sync.sh`):**
   - `helm/templates/saturn/` — the Saturn vLLM add-on
   - `helm/values-saturn.yaml` — Saturn defaults (`saturn.*`)
+  - `patches/saturn-integration.patch` — the Saturn model-list, checksum, and
+    Holmes environment changes applied to upstream templates
 
-`scripts/sync.sh` rsyncs `<HOLMESGPT_DIR>/helm/holmes/` into `./helm/` with `--delete`,
-stashing and restoring the files listed in its `KEEP_FILES` array. If you add a
-new AKSInvestigator-only file that must survive syncs, **add it to `KEEP_FILES`
-in `scripts/sync.sh`**, or the next sync will delete it.
+`scripts/sync.sh` stages the upstream chart, restores the files listed in
+`KEEP_FILES`, and applies `patches/saturn-integration.patch`. The destination is
+updated only if the patch applies cleanly. If a new upstream release conflicts,
+port the Saturn hunks to the new templates and refresh the patch; never add an
+upstream template to `KEEP_FILES`, because that would mask future upstream
+changes. Add only new AKSInvestigator-owned files to `KEEP_FILES`.
 
 ```bash
 # Defaults to ~/llm/holmesgpt
@@ -43,10 +48,10 @@ HolmesGPT has a model to talk to out of the box. Rendering rules (all must hold)
   is fully suppressed and HolmesGPT uses the external models instead.
 
 CPU vs GPU is selected by `saturn.gpu` (default `false`):
-- `saturn.gpu=false` — CPU vLLM, `--device=cpu`, `--dtype=float32`,
-  `maxModelLen=4096`. Requires an **AVX-512 Intel** node pool (Standard_D*s_v5);
+- `saturn.gpu=false` — CPU vLLM, `--dtype=float32`,
+  `maxModelLen=65536`. Requires an **AVX-512 Intel** node pool (Standard_D*s_v5);
   the prebuilt CPU image SIGILLs on AMD EPYC (AVX2-only).
-- `saturn.gpu=true` — GPU vLLM, `--dtype=auto`, `maxModelLen=65536`, requests
+- `saturn.gpu=true` — GPU vLLM, `--dtype=auto`, `maxModelLen=262144`, requests
   `nvidia.com/gpu: 1`. Set `saturn.nodeSelector` to land on the GPU pool.
 
 ### Mirroring the vLLM images to ACR
@@ -99,9 +104,9 @@ helm install aksi ./helm -n holmes --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
-To point HolmesGPT at the in-cluster Saturn model, set `additionalEnvVars`
-(`MODEL=openai/saturn-vllm`, `OPENAI_API_BASE=http://saturn-vllm.<ns>.svc.cluster.local:8000/v1`,
-`OPENAI_API_KEY=dummy`). See `README.md` for the full snippet.
+When Saturn is active, the chart automatically adds `openai/saturn-vllm` and
+its in-cluster endpoint to HolmesGPT's model list. The generated
+`max_context_size` matches the selected CPU/GPU serving limit.
 
 ## Working conventions
 

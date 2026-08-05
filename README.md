@@ -15,12 +15,12 @@ model when you'd rather use an external provider.
   defaults in `helm/values-saturn.yaml`).
   When you `helm install` with `-f helm/values-saturn.yaml` AND `modelList`
   is empty, the chart deploys a vLLM serving `saturn-ms/saturn-0202` with an
-  OpenAI-compatible API at `/v1`, so HolmesGPT has a model to talk to out of
-  the box. Toggle the backend with:
-  - `saturn.gpu=false` (default) — CPU build of vLLM, `--device=cpu`,
-    `--dtype=float32`, `--max-model-len=4096`. Requires an AVX-512 Intel
+  OpenAI-compatible API at `/v1` and automatically registers it in HolmesGPT's
+  model list. Toggle the backend with:
+  - `saturn.gpu=false` (default) — CPU build of vLLM,
+    `--dtype=float32`, `--max-model-len=65536`. Requires an AVX-512 Intel
     node pool (the prebuilt CPU image SIGILLs on AMD EPYC).
-  - `saturn.gpu=true` — GPU build, `--dtype=auto`, `--max-model-len=65536`,
+  - `saturn.gpu=true` — GPU build, `--dtype=auto`, `--max-model-len=262144`,
     requests `nvidia.com/gpu: 1`. Set `saturn.nodeSelector` to land on
     your GPU pool.
 
@@ -45,6 +45,8 @@ AKSInvestigator/
 │       ├── ... upstream templates ...
 │       └── saturn/             # AKS-specific add-ons (preserved by sync.sh)
 │           └── saturn-vllm.yaml
+├── patches/
+│   └── saturn-integration.patch # Saturn changes applied to upstream templates
 └── scripts/sync.sh             # pull latest chart from upstream
 ```
 
@@ -58,11 +60,18 @@ AKSInvestigator/
 HOLMESGPT_DIR=/path/to/holmesgpt ./scripts/sync.sh
 ```
 
-`scripts/sync.sh` rsyncs `<HOLMESGPT_DIR>/helm/holmes/` into `./helm/`, then restores
-the AKSInvestigator-specific files (`templates/saturn/` and
-`values-saturn.yaml`) that the rsync `--delete` would otherwise drop. Because
-`values.yaml` is now tracked verbatim from upstream, no manual re-application
-is needed after a sync — just review `git diff` to see what changed upstream.
+`scripts/sync.sh` builds the new chart in a temporary directory, restores the
+AKSInvestigator-only files listed in `KEEP_FILES`, and applies
+`patches/saturn-integration.patch` to the upstream Holmes templates. It updates
+`./helm/` only after the patch passes `git apply --check`, so an incompatible
+upstream change cannot leave a half-synced chart.
+
+For a new HolmesGPT release, update the upstream clone and run the script. If
+the patch still applies, review the resulting `git diff` and run the Helm
+validation commands. If it fails, port the rejected Saturn hunks to the new
+upstream templates, refresh `patches/saturn-integration.patch`, and rerun the
+script. Do not preserve or copy entire modified upstream templates; doing so
+would hide new upstream changes.
 
 ## Install
 
@@ -82,20 +91,17 @@ helm install aksi ./helm -n holmes --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
-## Point HolmesGPT at the in-cluster Saturn model
+## Saturn model configuration
 
-When you installed with `-f helm/values-saturn.yaml` (and `modelList` is
-empty), the Saturn deployment is rendered. Point HolmesGPT at it by adding
-to your install command (or a custom values file):
+When Saturn is enabled and `modelList` is empty, the chart automatically adds
+the following entry to HolmesGPT's model catalog. The namespace and
+`max_context_size` are generated from the Helm release and selected runtime:
 
 ```yaml
-additionalEnvVars:
-  - name: MODEL
-    value: openai/saturn-vllm
-  - name: OPENAI_API_BASE
-    value: http://saturn-vllm.holmes.svc.cluster.local:8000/v1
-  - name: OPENAI_API_KEY
-    value: dummy   # vLLM doesn't enforce auth; LiteLLM needs a non-empty value
+saturn-vllm:
+  api_base: http://saturn-vllm.<namespace>.svc.cluster.local:8000/v1
+  api_key: dummy
+  model: openai/saturn-vllm
+  custom_args:
+    max_context_size: 65536 # CPU default; GPU default is 262144
 ```
-
-(replace `holmes` with whatever namespace you installed into).

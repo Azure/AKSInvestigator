@@ -3,14 +3,8 @@
 # ---------------------------------------------------------------------------
 # Pass this file to helm with `-f values-saturn.yaml` to deploy an in-cluster
 # vLLM serving the saturn-0202 model alongside HolmesGPT (OpenAI-compatible
-# API at /v1, port 8000). Point HolmesGPT at it with:
-#   additionalEnvVars:
-#     - name: MODEL
-#       value: openai/saturn-vllm
-#     - name: OPENAI_API_BASE
-#       value: http://saturn-vllm.<release-namespace>.svc.cluster.local:8000/v1
-#     - name: OPENAI_API_KEY
-#       value: dummy   # vLLM doesn't enforce auth; LiteLLM needs a non-empty value
+# API at /v1, port 8000). The chart automatically adds the in-cluster endpoint
+# to HolmesGPT's model list.
 #
 # Even when this file is loaded, the Saturn deployment is fully suppressed if
 # modelList (in the main values.yaml) is non-empty — HolmesGPT then uses the
@@ -32,18 +26,21 @@ saturn:
   model: saturn-ms/saturn-0202
   servedModelName: saturn-vllm
 
-  # Unified context window: both GPU and CPU variants serve 65536 so HolmesGPT
-  # sees the same window regardless of where saturn runs. saturn-0202 supports
-  # 262144 natively (config.json max_position_embeddings) but 65536 balances KV
-  # cache footprint against HolmesGPT's long contexts. The template picks 65536
-  # for either variant if you leave this unset.
+  # Context windows per runtime. saturn-0202 supports 262144 natively, but the
+  # serving limit must fit the available KV cache. HolmesGPT receives the same
+  # effective value as custom_args.max_context_size in its generated model list.
+  cpuMaxModelLen: 65536
+  gpuMaxModelLen: 262144
+
+  # Backward-compatible shared override. When set, this takes precedence over
+  # both variant-specific values above.
   maxModelLen: ""
   gpuMemoryUtilization: "0.90"
 
   # CPU-only: size (GiB) of the vLLM CPU KV-cache pool (VLLM_CPU_KVCACHE_SPACE).
   # This — not gpuMemoryUtilization — governs CPU KV capacity. ~9 GiB holds one
-  # full 65536-token sequence; 10 leaves headroom. Keep in sync with
-  # resources.cpu.memory below. Ignored for the GPU variant.
+  # larger CPU context windows. Keep in sync with resources.cpu.memory below.
+  # Ignored for the GPU variant.
   cpuKvCacheSpace: "10"
 
   replicas: 1
@@ -66,8 +63,8 @@ saturn:
         memory: "16Gi"
         gpu: "1"
     cpu:
-      # Sized for --dtype=float32 (~16 GiB weights) + 10 GiB CPU KV cache
-      # (VLLM_CPU_KVCACHE_SPACE) + runtime overhead to serve a 65536 window.
+      # Sized for --dtype=float32 (~16 GiB weights) + the configured CPU KV
+      # cache (VLLM_CPU_KVCACHE_SPACE) + runtime overhead.
       requests:
         cpu: "6"
         memory: "26Gi"
