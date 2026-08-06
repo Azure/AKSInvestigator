@@ -38,10 +38,11 @@ saturn:
   gpuMemoryUtilization: "0.90"
 
   # CPU-only: size (GiB) of the vLLM CPU KV-cache pool (VLLM_CPU_KVCACHE_SPACE).
-  # This — not gpuMemoryUtilization — governs CPU KV capacity. ~9 GiB holds one
-  # larger CPU context windows. Keep in sync with resources.cpu.memory below.
+  # This — not gpuMemoryUtilization — governs CPU KV capacity. saturn-0202 needs
+  # about 18 GiB for the default 65536-token context; 20 GiB leaves headroom.
+  # Keep this in sync with resources.cpu.memory below.
   # Ignored for the GPU variant.
-  cpuKvCacheSpace: "10"
+  cpuKvCacheSpace: "20"
 
   replicas: 1
   shmSize: 2Gi
@@ -67,10 +68,10 @@ saturn:
       # cache (VLLM_CPU_KVCACHE_SPACE) + runtime overhead.
       requests:
         cpu: "6"
-        memory: "26Gi"
+        memory: "38Gi"
       limits:
         cpu: "8"
-        memory: "40Gi"
+        memory: "48Gi"
 
   # Scheduling. On AKS GPU pools you usually want `agentpool: gpu` (or
   # `kubernetes.azure.com/agentpool: gpu`). The CPU vLLM image requires

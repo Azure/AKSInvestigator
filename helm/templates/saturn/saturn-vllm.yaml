@@ -93,12 +93,16 @@ spec:
             {{- if not $gpu }}
             - name: VLLM_TARGET_DEVICE
               value: cpu
+            # vLLM 0.26.0 Model Runner V2 hardcodes pin_memory=True for
+            # structured outputs, which crashes with CPU-only PyTorch.
+            - name: VLLM_USE_V2_MODEL_RUNNER
+              value: "0"
             # CPU KV-cache pool size in GiB. On CPU vLLM this (NOT
             # gpu-memory-utilization) governs how many tokens the KV cache can
             # hold. Keep this sized with resources.cpu below when increasing
             # cpuMaxModelLen beyond its conservative default.
             - name: VLLM_CPU_KVCACHE_SPACE
-              value: {{ .cpuKvCacheSpace | default "10" | quote }}
+              value: {{ .cpuKvCacheSpace | default "20" | quote }}
             {{- end }}
             {{- with .extraEnv }}
             {{- toYaml . | nindent 12 }}
@@ -150,10 +154,10 @@ spec:
             {{- else }}
             requests:
               cpu: {{ .resources.cpu.requests.cpu | default "6" | quote }}
-              memory: {{ .resources.cpu.requests.memory | default "26Gi" | quote }}
+              memory: {{ .resources.cpu.requests.memory | default "38Gi" | quote }}
             limits:
               cpu: {{ .resources.cpu.limits.cpu | default "8" | quote }}
-              memory: {{ .resources.cpu.limits.memory | default "40Gi" | quote }}
+              memory: {{ .resources.cpu.limits.memory | default "48Gi" | quote }}
             {{- end }}
           volumeMounts:
             - name: cache
