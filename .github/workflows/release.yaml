@@ -55,7 +55,7 @@ jobs:
       - name: Log in to ACR
         run: az acr login --name "${{ secrets.AZURE_CONTAINER_REGISTRY }}"
 
-      - name: Package and push Helm chart to ACR
+      - name: Package and push Helm chart to MCR source path
         run: |
           set -euo pipefail
           VERSION="${{ steps.versions.outputs.version }}"
@@ -65,4 +65,5 @@ jobs:
             --version "${VERSION}" \
             --app-version "${APP_VERSION}" \
             -d /tmp/chart
-          helm push "/tmp/chart/aks-investigator-${VERSION}.tgz" "oci://${ACR}.azurecr.io/helm"
+          helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" \
+            "oci://${ACR}.azurecr.io/microsoft.aks.investigator"

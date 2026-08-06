@@ -1,5 +1,5 @@
 apiVersion: v2
-name: aks-investigator
+name: aks-investigator-chart
 description: AKS Investigator (AKS-flavored HolmesGPT) Helm chart for Kubernetes
 type: application
 
