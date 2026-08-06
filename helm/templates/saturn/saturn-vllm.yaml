@@ -24,7 +24,8 @@ for the original standalone manifests this template is derived from.
 {{- if .enabled -}}
 {{- $gpu := .gpu | default false -}}
 {{- $servedName := .servedModelName | default "saturn-vllm" -}}
-{{- $model := .model | default "saturn-ms/saturn-0202" -}}
+{{- $modelPath := .modelPath | default "/models/saturn-0202" -}}
+{{- $modelArtifact := .modelArtifact | default "mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model:0202" -}}
 {{- $defaultMaxModelLen := ternary 262144 65536 $gpu -}}
 {{- $variantMaxModelLen := ternary .gpuMaxModelLen .cpuMaxModelLen $gpu -}}
 {{- $maxModelLen := .maxModelLen | default $variantMaxModelLen | default $defaultMaxModelLen -}}
@@ -52,6 +53,18 @@ spec:
         app: saturn-vllm
         app.kubernetes.io/component: saturn-model
     spec:
+      initContainers:
+        - name: pull-model
+          image: {{ .modelPullImage | default "mcr.microsoft.com/oss/v2/oras-project/oras:v1.2.3" | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - pull
+            - {{ $modelArtifact | quote }}
+            - --output
+            - {{ $modelPath | quote }}
+          volumeMounts:
+            - name: model
+              mountPath: /models
       containers:
         - name: vllm
           {{- if $gpu }}
@@ -61,7 +74,7 @@ spec:
           {{- end }}
           imagePullPolicy: IfNotPresent
           args:
-            - --model={{ $model }}
+            - --model={{ $modelPath }}
             - --served-model-name={{ $servedName }}
             - --port=8000
             # ADDED vs vLLM defaults: enable native OpenAI tool_calls API.
@@ -90,6 +103,10 @@ spec:
           env:
             - name: HF_HOME
               value: /cache
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"
             {{- if not $gpu }}
             - name: VLLM_TARGET_DEVICE
               value: cpu
@@ -160,6 +177,9 @@ spec:
               memory: {{ .resources.cpu.limits.memory | default "48Gi" | quote }}
             {{- end }}
           volumeMounts:
+            - name: model
+              mountPath: /models
+              readOnly: true
             - name: cache
               mountPath: /cache
             - name: shm
@@ -181,6 +201,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       volumes:
+        - name: model
+          emptyDir: {}
         - name: cache
           emptyDir: {}
         - name: shm

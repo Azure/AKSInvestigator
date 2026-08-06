@@ -12,6 +12,13 @@
 #
 # Without this file the chart behaves like upstream HolmesGPT: no saturn-vllm
 # deployment, no saturn-related defaults.
+
+# Use the HolmesGPT image mirrored for the AKS Investigator extension. These
+# top-level values override the upstream registry/image defaults only when this
+# AKS-owned values overlay is loaded.
+registry: mcr.microsoft.com/microsoft.aks.investigator
+image: holmes:0.36.0
+
 saturn:
   # Toggle the entire add-on. Even when true, the template ONLY renders if
   # modelList is empty.
@@ -22,8 +29,14 @@ saturn:
   # (and configure nodeSelector below to land on the GPU pool).
   gpu: false
 
-  # Hugging Face model id and the name vLLM advertises on /v1/models.
-  model: saturn-ms/saturn-0202
+  # ModelPack OCI artifact downloaded by an init container before vLLM starts.
+  # The internal ACR source path includes public/, but MCR strips that ingestion
+  # prefix. Publish this tag with publish-saturn-model.yaml before deployment.
+  modelArtifact: mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model:0202
+  modelPullImage: mcr.microsoft.com/oss/v2/oras-project/oras:v1.2.3
+  modelPath: /models/saturn-0202
+
+  # The name vLLM advertises on /v1/models.
   servedModelName: saturn-vllm
 
   # Context windows per runtime. saturn-0202 supports 262144 natively, but the
@@ -47,9 +60,9 @@ saturn:
   replicas: 1
   shmSize: 2Gi
 
-  # Container images. Override to pin or to use a private mirror.
-  gpuImage: vllm/vllm-openai:v0.26.0
-  cpuImage: vllm/vllm-openai-cpu:v0.26.0
+  # Container images published for the AKS Investigator extension.
+  gpuImage: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai:v0.26.0
+  cpuImage: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai-cpu:v0.26.0
 
   # Resource requests/limits per variant. Keep these separate so a CPU-only
   # install never accidentally requests nvidia.com/gpu.

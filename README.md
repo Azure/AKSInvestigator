@@ -17,9 +17,10 @@ plugin provides a direct CLI for asking the in-cluster agent questions.
 - **In-cluster Saturn vLLM model** (`helm/templates/saturn/saturn-vllm.yaml`,
   defaults in `helm/values-saturn.yaml`).
   When you `helm install` with `-f helm/values-saturn.yaml` AND `modelList`
-  is empty, the chart deploys a vLLM serving `saturn-ms/saturn-0202` with an
-  OpenAI-compatible API at `/v1` and automatically registers it in HolmesGPT's
-  model list. Toggle the backend with:
+  is empty, an init container pulls the `saturn-ms/saturn-0202` ModelPack
+  artifact from MCR into pod-local storage, then vLLM serves that local model
+  through an OpenAI-compatible API at `/v1`. The chart automatically registers
+  it in HolmesGPT's model list. Toggle the backend with:
   - `saturn.gpu=false` (default) — CPU build of vLLM,
     `--dtype=float32`, `--max-model-len=65536`. Requires an AVX-512 Intel
     node pool (the prebuilt CPU image SIGILLs on AMD EPYC).
