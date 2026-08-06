@@ -1,25 +1,26 @@
-name: Mirror HolmesGPT image to ACR
+name: Publish HolmesGPT image to MCR
 
 # Show what is being mirrored in the run title (Actions list), e.g.
-# "Mirror HolmesGPT image to ACR 0.36.0".
+# "Publish HolmesGPT image to MCR 0.36.0".
 run-name: >-
-  Mirror HolmesGPT image to ACR ${{ inputs.tag || 'floor+newer' }}
+  Publish HolmesGPT image to MCR ${{ inputs.tag || 'floor+newer' }}
 
 # Standalone pipeline — INDEPENDENT of the Helm chart workflows
-# (sync-holmesgpt.yaml, release.yaml). It only stocks the AKS ACR with the
-# upstream HolmesGPT image the chart runs; it NEVER edits the chart.
+# (sync-holmesgpt.yaml, release.yaml). It imports the upstream HolmesGPT image
+# into the ACR namespace that feeds MCR; it NEVER edits the chart.
 #
 # We do not build the image ourselves (no HolmesGPT source in this repo) — we
 # mirror the upstream image from Docker Hub (robustadev/holmes) into the ACR,
 # keyed on the upstream tag. The Helm chart is published separately, only after
 # a sync PR merges and a release tag is pushed — see release.yaml.
 #
-# ACR layout: <acr>.azurecr.io/holmes:<tag>
+# ACR source: <acr>.azurecr.io/public/microsoft.aks.investigator/holmes:<tag>
+# MCR:        mcr.microsoft.com/microsoft.aks.investigator/holmes:<tag>
 on:
   schedule:
-    # Weekly, Monday 06:23 UTC. Off-peak, non-:00 minute to avoid the fleet-wide
-    # top-of-hour spike (and offset from mirror-vllm-images at :17).
-    - cron: "23 6 * * 1"
+  # Weekly, Monday 06:23 UTC. Off-peak, non-:00 minute to avoid the fleet-wide
+  # top-of-hour spike (and offset from mirror-vllm-images at :17).
+  - cron: "23 6 * * 1"
   workflow_dispatch:
     inputs:
       tag:
@@ -37,97 +38,98 @@ env:
   FLOOR_TAG: 0.36.0
   # Docker Hub source repo for the HolmesGPT image.
   SRC_REPO: robustadev/holmes
-  # Destination repository within the ACR.
-  DST_REPO: holmes
+  # Destination repository within the ACR namespace that feeds MCR.
+  DST_REPO: public/microsoft.aks.investigator/holmes
+  MCR_REPO: microsoft.aks.investigator/holmes
 
 jobs:
   mirror:
     runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
     steps:
-      - name: Checkout AKSInvestigator
-        uses: actions/checkout@v5
+    - name: Checkout AKSInvestigator
+      uses: actions/checkout@v5
 
-      - name: Log in to Azure (runner managed identity)
-        run: az login --identity
+    - name: Log in to Azure (runner managed identity)
+      run: az login --identity
 
-      - name: Resolve tags to mirror
-        id: tags
-        run: |
-          set -euo pipefail
-          # Normalise the floor to a bare X.Y.Z (chart tags carry no leading v).
-          FLOOR="${FLOOR_TAG#v}"
-          INPUT_TAG="${{ inputs.tag }}"
+    - name: Resolve tags to mirror
+      id: tags
+      run: |
+        set -euo pipefail
+        # Normalise the floor to a bare X.Y.Z (chart tags carry no leading v).
+        FLOOR="${FLOOR_TAG#v}"
+        INPUT_TAG="${{ inputs.tag }}"
 
-          if [[ -n "${INPUT_TAG}" ]]; then
-            # Manual override: mirror exactly the requested tag (strip leading v).
-            INPUT_TAG="${INPUT_TAG#v}"
-            echo "Manual dispatch tag: ${INPUT_TAG}"
-            echo "list=${INPUT_TAG}" >> "${GITHUB_OUTPUT}"
-            exit 0
+        if [[ -n "${INPUT_TAG}" ]]; then
+          # Manual override: mirror exactly the requested tag (strip leading v).
+          INPUT_TAG="${INPUT_TAG#v}"
+          echo "Manual dispatch tag: ${INPUT_TAG}"
+          echo "list=${INPUT_TAG}" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        # Scheduled / empty-input path: query Docker Hub for robustadev/holmes
+        # tags, keep X.Y.Z SemVer tags >= FLOOR.
+        echo "Resolving tags >= ${FLOOR} from Docker Hub…"
+        url="https://hub.docker.com/v2/repositories/${SRC_REPO}/tags?page_size=100"
+        raw=""
+        while [[ -n "${url}" && "${url}" != "null" ]]; do
+          page="$(curl -fsSL "${url}")"
+          raw="${raw}"$'\n'"$(echo "${page}" | jq -r '.results[].name')"
+          url="$(echo "${page}" | jq -r '.next')"
+        done
+
+        # Keep only strict X.Y.Z tags (with or without a leading v), drop the v,
+        # keep those >= FLOOR. sort -V handles SemVer ordering.
+        selected="$(echo "${raw}" \
+          | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+          | sed 's/^v//' \
+          | sort -V -u \
+          | awk -v floor="${FLOOR}" '
+              { if (cmp(floor, $0) <= 0) print $0 }
+              function cmp(a, b,   na, nb, i) {
+                split(a, na, "."); split(b, nb, ".");
+                for (i = 1; i <= 3; i++) {
+                  if (na[i]+0 < nb[i]+0) return -1;
+                  if (na[i]+0 > nb[i]+0) return 1;
+                }
+                return 0;
+              }' \
+          | paste -sd' ' -)"
+
+        if [[ -z "${selected}" ]]; then
+          echo "::warning::no tags >= ${FLOOR} found; defaulting to floor only"
+          selected="${FLOOR}"
+        fi
+        echo "Tags to mirror: ${selected}"
+        echo "list=${selected}" >> "${GITHUB_OUTPUT}"
+
+    - name: Publish image to MCR source ACR
+      env:
+        ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+        TAGS: ${{ steps.tags.outputs.list }}
+      run: |
+        set -euo pipefail
+        summary=""
+        for tag in ${TAGS}; do
+          src="docker.io/${SRC_REPO}:${tag}"
+          # Idempotency: skip if the tag already exists in ACR so we don't
+          # re-import layers every run.
+          if az acr repository show-tags \
+               --name "${ACR}" \
+               --repository "${DST_REPO}" \
+               --query "contains(@, '${tag}')" -o tsv 2>/dev/null | grep -qx true; then
+            echo "skip (present): ${DST_REPO}:${tag}"
+            summary="${summary}\n  skip  mcr.microsoft.com/${MCR_REPO}:${tag}"
+            continue
           fi
-
-          # Scheduled / empty-input path: query Docker Hub for robustadev/holmes
-          # tags, keep X.Y.Z SemVer tags >= FLOOR.
-          echo "Resolving tags >= ${FLOOR} from Docker Hub…"
-          url="https://hub.docker.com/v2/repositories/${SRC_REPO}/tags?page_size=100"
-          raw=""
-          while [[ -n "${url}" && "${url}" != "null" ]]; do
-            page="$(curl -fsSL "${url}")"
-            raw="${raw}"$'\n'"$(echo "${page}" | jq -r '.results[].name')"
-            url="$(echo "${page}" | jq -r '.next')"
-          done
-
-          # Keep only strict X.Y.Z tags (with or without a leading v), drop the v,
-          # keep those >= FLOOR. sort -V handles SemVer ordering.
-          selected="$(echo "${raw}" \
-            | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sed 's/^v//' \
-            | sort -V -u \
-            | awk -v floor="${FLOOR}" '
-                { if (cmp(floor, $0) <= 0) print $0 }
-                function cmp(a, b,   na, nb, i) {
-                  split(a, na, "."); split(b, nb, ".");
-                  for (i = 1; i <= 3; i++) {
-                    if (na[i]+0 < nb[i]+0) return -1;
-                    if (na[i]+0 > nb[i]+0) return 1;
-                  }
-                  return 0;
-                }' \
-            | paste -sd' ' -)"
-
-          if [[ -z "${selected}" ]]; then
-            echo "::warning::no tags >= ${FLOOR} found; defaulting to floor only"
-            selected="${FLOOR}"
-          fi
-          echo "Tags to mirror: ${selected}"
-          echo "list=${selected}" >> "${GITHUB_OUTPUT}"
-
-      - name: Mirror image to ACR
-        env:
-          ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
-          TAGS: ${{ steps.tags.outputs.list }}
-        run: |
-          set -euo pipefail
-          summary=""
-          for tag in ${TAGS}; do
-            src="docker.io/${SRC_REPO}:${tag}"
-            # Idempotency: skip if the tag already exists in ACR so we don't
-            # re-import layers every run.
-            if az acr repository show-tags \
-                 --name "${ACR}" \
-                 --repository "${DST_REPO}" \
-                 --query "contains(@, '${tag}')" -o tsv 2>/dev/null | grep -qx true; then
-              echo "skip (present): ${DST_REPO}:${tag}"
-              summary="${summary}\n  skip  ${DST_REPO}:${tag}"
-              continue
-            fi
-            echo "import: ${src} -> ${ACR}.azurecr.io/${DST_REPO}:${tag}"
-            # Server-side registry-to-registry copy — no local docker pull of the
-            # image onto the runner.
-            az acr import \
-              --name "${ACR}" \
-              --source "${src}" \
-              --image "${DST_REPO}:${tag}"
-            summary="${summary}\n  done  ${DST_REPO}:${tag}"
-          done
-          echo -e "==> Mirror summary:${summary}"
+          echo "import: ${src} -> ${ACR}.azurecr.io/${DST_REPO}:${tag}"
+          # Server-side registry-to-registry copy — no local docker pull of the
+          # image onto the runner.
+          az acr import \
+            --name "${ACR}" \
+            --source "${src}" \
+            --image "${DST_REPO}:${tag}"
+          summary="${summary}\n  done  mcr.microsoft.com/${MCR_REPO}:${tag}"
+        done
+        echo -e "==> MCR publication summary:${summary}"

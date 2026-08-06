@@ -1,0 +1,130 @@
+name: Publish Saturn model to MCR source ACR
+
+run-name: >-
+  Publish Saturn model ${{ inputs.revision }} as ${{ inputs.tag }}
+
+# AIKit writes a local ModelPack OCI layout; ORAS then copies that layout to
+# the ACR namespace used as the source for MCR publication.
+#
+# ACR: <acr>.azurecr.io/public/microsoft.aks.investigator/saturn-0202-model:<tag>
+# MCR: mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model:<tag>
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Hugging Face branch, tag, or commit to publish"
+        required: true
+        default: main
+        type: string
+      tag:
+        description: "Friendly OCI tag used by the chart. An immutable sha-<commit> tag is also published."
+        required: false
+        default: "0202"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  AIKIT_IMAGE: ghcr.io/kaito-project/aikit/aikit:latest
+  HF_MODEL: saturn-ms/saturn-0202
+  MODEL_NAME: saturn-0202
+  DST_REPO: public/microsoft.aks.investigator/saturn-0202-model
+  MCR_REPO: microsoft.aks.investigator/saturn-0202-model
+
+jobs:
+  publish-model:
+    runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
+    steps:
+    - name: Checkout AKSInvestigator
+      uses: actions/checkout@v5
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Set up ORAS
+      uses: oras-project/setup-oras@v1
+
+    - name: Resolve immutable model revision
+      id: model
+      env:
+        REVISION: ${{ inputs.revision }}
+        FRIENDLY_TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+
+        metadata_url="https://huggingface.co/api/models/${HF_MODEL}/revision/${REVISION}"
+        sha="$(curl -fsSL --retry 3 "${metadata_url}" | jq -r '.sha')"
+        if [[ ! "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::could not resolve ${HF_MODEL}@${REVISION} to a commit SHA"
+          exit 1
+        fi
+
+        if [[ -n "${FRIENDLY_TAG}" && ! "${FRIENDLY_TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+          echo "::error::invalid OCI tag: ${FRIENDLY_TAG}"
+          exit 1
+        fi
+
+        immutable_tag="sha-${sha:0:12}"
+        echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+        echo "immutable_tag=${immutable_tag}" >> "${GITHUB_OUTPUT}"
+        echo "Resolved ${HF_MODEL}@${REVISION} to ${sha}"
+
+    - name: Package model as a ModelPack OCI artifact
+      env:
+        MODEL_SHA: ${{ steps.model.outputs.sha }}
+      run: |
+        set -euo pipefail
+        OCI_DIR="${RUNNER_TEMP}/saturn-model"
+        rm -rf "${OCI_DIR}"
+
+        printf '' | docker buildx build \
+          --build-arg "BUILDKIT_SYNTAX=${AIKIT_IMAGE}" \
+          --target packager/modelpack \
+          --build-arg "source=huggingface://${HF_MODEL}@${MODEL_SHA}" \
+          --build-arg "name=${MODEL_NAME}" \
+          --build-arg "layer_packaging=raw" \
+          --output "${OCI_DIR}" \
+          -
+
+        test -f "${OCI_DIR}/layout/index.json"
+
+    - name: Log in to Azure and ACR
+      env:
+        ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+      run: |
+        set -euo pipefail
+        az login --identity
+        az acr login --name "${ACR}"
+
+    - name: Publish model artifact
+      env:
+        ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+        FRIENDLY_TAG: ${{ inputs.tag }}
+        IMMUTABLE_TAG: ${{ steps.model.outputs.immutable_tag }}
+      run: |
+        set -euo pipefail
+        source_ref="${RUNNER_TEMP}/saturn-model/layout:${MODEL_NAME}"
+        registry="${ACR}.azurecr.io"
+        immutable_ref="${registry}/${DST_REPO}:${IMMUTABLE_TAG}"
+
+        oras cp --from-oci-layout "${source_ref}" "${immutable_ref}"
+        oras manifest fetch "${immutable_ref}" >/dev/null
+        echo "Published ${immutable_ref}"
+
+        if [[ -n "${FRIENDLY_TAG}" && "${FRIENDLY_TAG}" != "${IMMUTABLE_TAG}" ]]; then
+          friendly_ref="${registry}/${DST_REPO}:${FRIENDLY_TAG}"
+          oras cp "${immutable_ref}" "${friendly_ref}"
+          oras manifest fetch "${friendly_ref}" >/dev/null
+          echo "Published ${friendly_ref}"
+        fi
+
+        {
+          echo "### Saturn ModelPack artifact"
+          echo
+          echo "- Model: \`${HF_MODEL}@${{ steps.model.outputs.sha }}\`"
+          echo "- MCR: \`mcr.microsoft.com/${MCR_REPO}:${IMMUTABLE_TAG}\`"
+          if [[ -n "${FRIENDLY_TAG}" ]]; then
+            echo "- MCR alias: \`mcr.microsoft.com/${MCR_REPO}:${FRIENDLY_TAG}\`"
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"

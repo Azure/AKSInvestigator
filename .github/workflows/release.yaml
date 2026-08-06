@@ -15,55 +15,55 @@ run-name: Release AKS Investigator chart ${{ github.ref_name }}
 on:
   push:
     tags:
-      # SemVer release tags (glob, not regex), e.g. `1.4.0` or the
-      # `0.0.1-alpha.1` pre-releases used to test main.
-      - "[0-9]*.*.*"
+    # SemVer release tags (glob, not regex), e.g. `1.4.0` or the
+    # `0.0.1-alpha.1` pre-releases used to test main.
+    - "[0-9]*.*.*"
 
 permissions:
   contents: read
 
 jobs:
   publish-chart:
-    runs-on: [self-hosted, e2e]
+    runs-on: [ self-hosted, e2e ]
     steps:
-      - name: Checkout AKSInvestigator
-        uses: actions/checkout@v5
+    - name: Checkout AKSInvestigator
+      uses: actions/checkout@v5
 
-      - name: Resolve chart version and app version
-        id: versions
-        run: |
-          set -euo pipefail
-          # Chart version = release tag without the leading `v` (SemVer).
-          VERSION="${GITHUB_REF_NAME#v}"
-          # App version = upstream HolmesGPT image tag from UPSTREAM_VERSION.
-          if [[ ! -f UPSTREAM_VERSION ]]; then
-            echo "::error::UPSTREAM_VERSION not found; run scripts/sync.sh first"
-            exit 1
-          fi
-          APP_VERSION="$(awk '/^ref:/ {print $2; exit}' UPSTREAM_VERSION)"
-          if [[ -z "${APP_VERSION}" ]]; then
-            echo "::error::could not parse ref from UPSTREAM_VERSION"
-            exit 1
-          fi
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "app_version=${APP_VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "Chart version: ${VERSION}  appVersion: ${APP_VERSION}"
+    - name: Resolve chart version and app version
+      id: versions
+      run: |
+        set -euo pipefail
+        # Chart version = release tag without the leading `v` (SemVer).
+        VERSION="${GITHUB_REF_NAME#v}"
+        # App version = upstream HolmesGPT image tag from UPSTREAM_VERSION.
+        if [[ ! -f UPSTREAM_VERSION ]]; then
+          echo "::error::UPSTREAM_VERSION not found; run scripts/sync.sh first"
+          exit 1
+        fi
+        APP_VERSION="$(awk '/^ref:/ {print $2; exit}' UPSTREAM_VERSION)"
+        if [[ -z "${APP_VERSION}" ]]; then
+          echo "::error::could not parse ref from UPSTREAM_VERSION"
+          exit 1
+        fi
+        echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+        echo "app_version=${APP_VERSION}" >> "${GITHUB_OUTPUT}"
+        echo "Chart version: ${VERSION}  appVersion: ${APP_VERSION}"
 
-      - name: Log in to Azure (runner managed identity)
-        run: az login --identity
+    - name: Log in to Azure (runner managed identity)
+      run: az login --identity
 
-      - name: Log in to ACR
-        run: az acr login --name "${{ secrets.AZURE_CONTAINER_REGISTRY }}"
+    - name: Log in to ACR
+      run: az acr login --name "${{ secrets.AZURE_CONTAINER_REGISTRY }}"
 
-      - name: Package and push Helm chart to MCR source path
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.versions.outputs.version }}"
-          APP_VERSION="${{ steps.versions.outputs.app_version }}"
-          ACR="${{ secrets.AZURE_CONTAINER_REGISTRY }}"
-          helm package ./helm \
-            --version "${VERSION}" \
-            --app-version "${APP_VERSION}" \
-            -d /tmp/chart
-          helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" \
-            "oci://${ACR}.azurecr.io/microsoft.aks.investigator"
+    - name: Package and push Helm chart to MCR source path
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.versions.outputs.version }}"
+        APP_VERSION="${{ steps.versions.outputs.app_version }}"
+        ACR="${{ secrets.AZURE_CONTAINER_REGISTRY }}"
+        helm package ./helm \
+          --version "${VERSION}" \
+          --app-version "${APP_VERSION}" \
+          -d /tmp/chart
+        helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" \
+          "oci://${ACR}.azurecr.io/public/microsoft.aks.investigator"

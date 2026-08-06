@@ -122,3 +122,15 @@ saturn-vllm:
   custom_args:
     max_context_size: 65536 # CPU default; GPU default is 262144
 ```
+
+## Publish the Saturn model
+
+Run the `Publish Saturn model to MCR source ACR` workflow manually with a
+Hugging Face revision and a friendly OCI tag (default `0202`). The workflow resolves
+the revision to an immutable commit, packages `saturn-ms/saturn-0202` as a CNCF
+ModelPack OCI artifact with AIKit, and publishes both `sha-<commit>` and the
+optional friendly tag through the ACR that feeds MCR:
+
+```text
+mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model:<tag>
+```
