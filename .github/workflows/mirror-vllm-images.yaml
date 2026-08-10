@@ -31,6 +31,11 @@ on:
         description: "Specific vLLM tag to mirror, e.g. v0.26.0. Leave empty to mirror the floor (v0.26.0) plus any newer release."
         required: false
         type: string
+      force:
+        description: "Import tags even when they already exist in ACR."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -110,6 +115,7 @@ jobs:
       env:
         ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
         TAGS: ${{ steps.tags.outputs.list }}
+        FORCE: ${{ inputs.force || false }}
       run: |
         set -euo pipefail
         summary=""
@@ -119,8 +125,8 @@ jobs:
             mcr_repo="microsoft.aks.investigator/${img}"
             src="docker.io/vllm/${img}:${tag}"
             # Idempotency: skip if the tag already exists in ACR so we don't
-            # re-import multi-GB layers every run.
-            if az acr repository show-tags \
+            # import multi-GB layers every run unless explicitly forced.
+            if [[ "${FORCE}" != "true" ]] && az acr repository show-tags \
                  --name "${ACR}" \
                  --repository "${dst_repo}" \
                  --query "contains(@, '${tag}')" -o tsv 2>/dev/null | grep -qx true; then
@@ -131,10 +137,15 @@ jobs:
             echo "import: ${src} -> ${ACR}.azurecr.io/${dst_repo}:${tag}"
             # Server-side registry-to-registry copy — no local docker pull of
             # the (large) vLLM images onto the runner.
-            az acr import \
-              --name "${ACR}" \
-              --source "${src}" \
+            import_args=(
+              --name "${ACR}"
+              --source "${src}"
               --image "${dst_repo}:${tag}"
+            )
+            if [[ "${FORCE}" == "true" ]]; then
+              import_args+=(--force)
+            fi
+            az acr import "${import_args[@]}"
             summary="${summary}\n  done  mcr.microsoft.com/${mcr_repo}:${tag}"
           done
         done

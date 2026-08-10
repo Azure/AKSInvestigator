@@ -27,6 +27,11 @@ on:
         description: "Specific HolmesGPT tag to mirror, e.g. 0.36.0 (leading v optional). Leave empty to mirror the floor plus any newer release."
         required: false
         type: string
+      force:
+        description: "Import tags even when they already exist in ACR."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -108,14 +113,15 @@ jobs:
       env:
         ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
         TAGS: ${{ steps.tags.outputs.list }}
+        FORCE: ${{ inputs.force || false }}
       run: |
         set -euo pipefail
         summary=""
         for tag in ${TAGS}; do
           src="docker.io/${SRC_REPO}:${tag}"
           # Idempotency: skip if the tag already exists in ACR so we don't
-          # re-import layers every run.
-          if az acr repository show-tags \
+          # import layers every run unless explicitly forced.
+          if [[ "${FORCE}" != "true" ]] && az acr repository show-tags \
                --name "${ACR}" \
                --repository "${DST_REPO}" \
                --query "contains(@, '${tag}')" -o tsv 2>/dev/null | grep -qx true; then
@@ -126,10 +132,15 @@ jobs:
           echo "import: ${src} -> ${ACR}.azurecr.io/${DST_REPO}:${tag}"
           # Server-side registry-to-registry copy — no local docker pull of the
           # image onto the runner.
-          az acr import \
-            --name "${ACR}" \
-            --source "${src}" \
+          import_args=(
+            --name "${ACR}"
+            --source "${src}"
             --image "${DST_REPO}:${tag}"
+          )
+          if [[ "${FORCE}" == "true" ]]; then
+            import_args+=(--force)
+          fi
+          az acr import "${import_args[@]}"
           summary="${summary}\n  done  mcr.microsoft.com/${MCR_REPO}:${tag}"
         done
         echo -e "==> MCR publication summary:${summary}"
