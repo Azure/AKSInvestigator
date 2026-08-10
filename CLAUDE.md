@@ -13,8 +13,10 @@ applied to upstream templates. Understanding this split is essential before
 editing anything:
 
 - **Upstream-tracked (do NOT hand-patch):** everything under `helm/` that comes
-  from upstream, most importantly `helm/values.yaml` (kept byte-identical to
-  upstream). Changes here should come from an upstream sync, not manual edits.
+  from upstream, most importantly `helm/values.yaml`. The sync script pins the
+  upstream HolmesGPT image tag; the release workflow changes its registry only
+  in the packaged chart. Otherwise changes here should come from an upstream
+  sync, not manual edits.
 - **AKSInvestigator-only (safe to edit, preserved by `sync.sh`):**
   - `helm/templates/saturn/` — the Saturn vLLM add-on
   - `helm/values-saturn.yaml` — Saturn defaults (`saturn.*`)
@@ -67,8 +69,8 @@ in `values-saturn.yaml`, currently `v0.26.0`) plus any newer `vX.Y.Z` release,
 and is idempotent (skips tags already in ACR).
 
 It **never edits the chart** — bumping the vLLM version Saturn actually runs is a
-manual edit to `gpuImage`/`cpuImage` in `values-saturn.yaml`. If you raise that
-pin, also bump `FLOOR_TAG` in the workflow.
+manual edit to `gpuImage.tag`/`cpuImage.tag` in `values-saturn.yaml`. If you
+raise that pin, also bump `FLOOR_TAG` in the workflow.
 
 ## Layout
 
@@ -76,7 +78,7 @@ pin, also bump `FLOOR_TAG` in the workflow.
 AKSInvestigator/
 ├── helm/                      # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml             # name: holmes; version placeholder 0.0.1
-│   ├── values.yaml            # byte-identical to upstream — do not patch
+│   ├── values.yaml            # synced upstream values; image tag pinned by sync
 │   ├── values-saturn.yaml     # AKSInvestigator-only (saturn.*)
 │   ├── crds/                  # healthcheck, scheduledhealthcheck, triggeredhealthcheck
 │   └── templates/

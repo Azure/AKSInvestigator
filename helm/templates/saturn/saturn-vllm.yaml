@@ -25,7 +25,10 @@ for the original standalone manifests this template is derived from.
 {{- $gpu := .gpu | default false -}}
 {{- $servedName := .servedModelName | default "saturn-vllm" -}}
 {{- $modelPath := .modelPath | default "/models/saturn-0202" -}}
-{{- $modelArtifact := .modelArtifact | default "mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model:0202" -}}
+{{- $modelArtifact := printf "%s:%s" (required "saturn.modelArtifact.repository is required" .modelArtifact.repository) (required "saturn.modelArtifact.tag is required" .modelArtifact.tag) -}}
+{{- $modelPullImage := printf "%s:%s" (required "saturn.modelPullImage.repository is required" .modelPullImage.repository) (required "saturn.modelPullImage.tag is required" .modelPullImage.tag) -}}
+{{- $gpuImage := printf "%s:%s" (required "saturn.gpuImage.repository is required" .gpuImage.repository) (required "saturn.gpuImage.tag is required" .gpuImage.tag) -}}
+{{- $cpuImage := printf "%s:%s" (required "saturn.cpuImage.repository is required" .cpuImage.repository) (required "saturn.cpuImage.tag is required" .cpuImage.tag) -}}
 {{- $defaultMaxModelLen := ternary 262144 65536 $gpu -}}
 {{- $variantMaxModelLen := ternary .gpuMaxModelLen .cpuMaxModelLen $gpu -}}
 {{- $maxModelLen := .maxModelLen | default $variantMaxModelLen | default $defaultMaxModelLen -}}
@@ -55,7 +58,7 @@ spec:
     spec:
       initContainers:
         - name: pull-model
-          image: {{ .modelPullImage | default "mcr.microsoft.com/oss/v2/oras-project/oras:v1.2.3" | quote }}
+          image: {{ $modelPullImage | quote }}
           imagePullPolicy: IfNotPresent
           args:
             - pull
@@ -68,9 +71,9 @@ spec:
       containers:
         - name: vllm
           {{- if $gpu }}
-          image: {{ .gpuImage | default "vllm/vllm-openai:v0.26.0" | quote }}
+          image: {{ $gpuImage | quote }}
           {{- else }}
-          image: {{ .cpuImage | default "vllm/vllm-openai-cpu:v0.26.0" | quote }}
+          image: {{ $cpuImage | quote }}
           {{- end }}
           imagePullPolicy: IfNotPresent
           args:

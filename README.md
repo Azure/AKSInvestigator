@@ -45,7 +45,7 @@ AKSInvestigator/
 │   └── README.md
 ├── helm/                       # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml
-│   ├── values.yaml             # byte-identical to upstream — do not patch
+│   ├── values.yaml             # synced upstream values; image tag pinned by sync
 │   ├── values-saturn.yaml      # AKSInvestigator-only defaults (saturn.*)
 │   ├── crds/
 │   └── templates/
@@ -122,6 +122,25 @@ saturn-vllm:
   model: openai/saturn-vllm
   custom_args:
     max_context_size: 65536 # CPU default; GPU default is 262144
+```
+
+Every image used by the Saturn pod, including the ModelPack OCI artifact, has
+independent `repository` and `tag` values under `saturn`:
+
+```yaml
+saturn:
+  modelArtifact:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model
+    tag: "0202"
+  modelPullImage:
+    repository: mcr.microsoft.com/oss/v2/oras-project/oras
+    tag: v1.2.3
+  gpuImage:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai
+    tag: v0.26.0
+  cpuImage:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai-cpu
+    tag: v0.26.0
 ```
 
 ## Publish the Saturn model
