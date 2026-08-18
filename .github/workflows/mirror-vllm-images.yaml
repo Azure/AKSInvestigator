@@ -1,9 +1,9 @@
-name: Publish Saturn vLLM images to MCR
+name: Publish vLLM images to MCR
 
 # Show what is being mirrored in the run title (Actions list), e.g.
-# "Publish Saturn vLLM images to MCR v0.26.0".
+# "Publish vLLM images to MCR v0.26.0".
 run-name: >-
-  Publish Saturn vLLM images to MCR ${{ inputs.tag || 'floor+newer' }}
+  Publish vLLM images to MCR ${{ inputs.tag || 'floor+newer' }}
 
 # Standalone pipeline — INDEPENDENT of the Helm chart workflows
 # (sync-holmesgpt.yaml, release.yaml). It imports the upstream vLLM images that
