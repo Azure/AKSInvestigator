@@ -27,8 +27,8 @@ saturn:
   # The internal ACR source path includes public/, but MCR strips that ingestion
   # prefix. Publish this tag with publish-saturn-model.yaml before deployment.
   modelArtifact:
-    repository: mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model
-    tag: "0202"
+    repository: mcr.microsoft.com/microsoft.aks.investigator/saturn
+    tag: "v1-20260202"
   modelPullImage:
     repository: mcr.microsoft.com/oss/v2/oras-project/oras
     tag: v1.2.3

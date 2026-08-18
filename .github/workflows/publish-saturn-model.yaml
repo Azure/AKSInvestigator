@@ -1,4 +1,4 @@
-name: Publish Saturn model to MCR source ACR
+name: Publish Saturn model to MCR
 
 run-name: >-
   Publish Saturn model ${{ inputs.revision }} as ${{ inputs.tag }}
@@ -6,8 +6,8 @@ run-name: >-
 # AIKit writes a local ModelPack OCI layout; ORAS then copies that layout to
 # the ACR namespace used as the source for MCR publication.
 #
-# ACR: <acr>.azurecr.io/public/microsoft.aks.investigator/saturn-0202-model:<tag>
-# MCR: mcr.microsoft.com/microsoft.aks.investigator/saturn-0202-model:<tag>
+# ACR: <acr>.azurecr.io/public/microsoft.aks.investigator/saturn:<tag>
+# MCR: mcr.microsoft.com/microsoft.aks.investigator/saturn:<tag>
 on:
   workflow_dispatch:
     inputs:
@@ -17,9 +17,9 @@ on:
         default: main
         type: string
       tag:
-        description: "Friendly OCI tag used by the chart. An immutable sha-<commit> tag is also published."
+        description: "Saturn release tag used by the chart, e.g. v1-20260202. An immutable sha-<commit> tag is also published."
         required: false
-        default: "0202"
+        default: "v1-20260202"
         type: string
 
 permissions:
@@ -29,8 +29,8 @@ env:
   AIKIT_IMAGE: ghcr.io/kaito-project/aikit/aikit:latest
   HF_MODEL: saturn-ms/saturn-0202
   MODEL_NAME: saturn-0202
-  DST_REPO: public/microsoft.aks.investigator/saturn-0202-model
-  MCR_REPO: microsoft.aks.investigator/saturn-0202-model
+  DST_REPO: public/microsoft.aks.investigator/saturn
+  MCR_REPO: microsoft.aks.investigator/saturn
 
 jobs:
   publish-model:
