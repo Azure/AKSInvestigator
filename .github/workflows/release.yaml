@@ -6,7 +6,8 @@ run-name: Release AKS Investigator chart ${{ github.ref_name }}
 
 # Publish the AKSInvestigator Helm chart to the AKS ACR when an AKS Investigator
 # release is cut. Cutting a release = pushing a `X.Y.Z` git tag on `main` after
-# the locally generated upstream sync branch (see README.md) has merged.
+# the locally generated upstream sync branch (see docs/sync-holmesgpt.md) has
+# merged.
 #
 # The chart `version` is the AKS Investigator release version (from the tag),
 # while `appVersion` is the upstream HolmesGPT image tag recorded in
