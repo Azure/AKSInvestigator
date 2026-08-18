@@ -5,14 +5,14 @@ name: Publish HolmesGPT image to MCR
 run-name: >-
   Publish HolmesGPT image to MCR ${{ inputs.tag || 'floor+newer' }}
 
-# Standalone pipeline — INDEPENDENT of the Helm chart workflows
-# (sync-holmesgpt.yaml, release.yaml). It imports the upstream HolmesGPT image
-# into the ACR namespace that feeds MCR; it NEVER edits the chart.
+# Standalone pipeline — INDEPENDENT of local chart syncing and release.yaml. It
+# imports the upstream HolmesGPT image into the ACR namespace that feeds MCR;
+# it NEVER edits the chart.
 #
 # We do not build the image ourselves (no HolmesGPT source in this repo) — we
 # mirror the upstream image from Docker Hub (robustadev/holmes) into the ACR,
 # keyed on the upstream tag. The Helm chart is published separately, only after
-# a sync PR merges and a release tag is pushed — see release.yaml.
+# a local sync branch merges and a release tag is pushed — see release.yaml.
 #
 # ACR source: <acr>.azurecr.io/public/microsoft.aks.investigator/holmes:<tag>
 # MCR:        mcr.microsoft.com/microsoft.aks.investigator/holmes:<tag>

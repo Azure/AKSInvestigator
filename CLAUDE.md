@@ -59,7 +59,7 @@ CPU vs GPU is selected by `saturn.gpu` (default `false`):
 ### Mirroring the vLLM images to ACR
 
 `.github/workflows/mirror-vllm-images.yaml` is a **standalone** pipeline
-(independent of `sync-holmesgpt.yaml` and `release.yaml`) that mirrors the
+(independent of local chart syncing and `release.yaml`) that mirrors the
 upstream vLLM images Saturn uses — `vllm/vllm-openai` (GPU) and
 `vllm/vllm-openai-cpu` (CPU) — from Docker Hub into the AKS ACR as
 `saturn/vllm-openai:<tag>` and `saturn/vllm-openai-cpu:<tag>`, via server-side

@@ -5,9 +5,9 @@ name: Publish vLLM images to MCR
 run-name: >-
   Publish vLLM images to MCR ${{ inputs.tag || 'floor+newer' }}
 
-# Standalone pipeline — INDEPENDENT of the Helm chart workflows
-# (sync-holmesgpt.yaml, release.yaml). It imports the upstream vLLM images that
-# Saturn uses into the ACR namespace that feeds MCR; it NEVER edits the chart.
+# Standalone pipeline — INDEPENDENT of local chart syncing and release.yaml. It
+# imports the upstream vLLM images that Saturn uses into the ACR namespace that
+# feeds MCR; it NEVER edits the chart.
 #
 # Saturn pins its images in helm/values-saturn.yaml:
 #   gpuImage.tag: v0.26.0
