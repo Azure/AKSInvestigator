@@ -42,7 +42,9 @@ jobs:
           set -euo pipefail
           REF="${{ steps.upstream.outputs.ref }}"
           CURRENT=""
-          [[ -f .upstream-version ]] && CURRENT="$(cat .upstream-version)"
+          if [[ -f UPSTREAM_VERSION ]]; then
+            CURRENT="$(awk '/^ref:/ {print $2; exit}' UPSTREAM_VERSION)"
+          fi
           echo "Current: '${CURRENT}'  Upstream: '${REF}'"
           if [[ "${CURRENT}" == "${REF}" ]]; then
             echo "changed=false" >> "${GITHUB_OUTPUT}"
@@ -64,7 +66,6 @@ jobs:
         run: |
           set -euo pipefail
           HOLMESGPT_DIR=/tmp/holmesgpt ./scripts/sync.sh
-          echo "${{ steps.upstream.outputs.ref }}" > .upstream-version
 
       - name: Generate app token
         id: app-token
