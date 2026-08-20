@@ -79,12 +79,10 @@ if [[ "${UPSTREAM_REF}" == *-dirty ]]; then
   echo "         recorded version may not be reproducible." >&2
 fi
 
-# Pin the chart's HolmesGPT image tag to the upstream version we just synced, so
-# the AKSInvestigator chart deploys the same HolmesGPT version as the original
-# upstream chart. Upstream ships a `holmes:0.0.0` placeholder that it only fills
-# in at its own release time; here we fill it in with the synced ref. This is a
-# deliberate fork behavior re-applied on every sync, so values.yaml never has to
-# be hand-patched.
+# Pin the chart's HolmesGPT image tag to the upstream version we just synced and
+# point it at the AKS Investigator MCR namespace. Upstream ships a `holmes:0.0.0`
+# placeholder under `robustadev`; these deliberate fork defaults are re-applied
+# on every sync so values.yaml never has to be hand-patched.
 VALUES="${DST_CHART}/values.yaml"
 if [[ "${UPSTREAM_REF}" != "unknown" && -f "${VALUES}" ]]; then
   # Strip a leading `v` so the tag is a clean SemVer (e.g. v0.36.0 -> 0.36.0).
@@ -95,6 +93,14 @@ if [[ "${UPSTREAM_REF}" != "unknown" && -f "${VALUES}" ]]; then
   else
     echo "warning: could not find 'image: holmes:<tag>' in ${VALUES};" >&2
     echo "         image tag left unchanged." >&2
+  fi
+
+  if grep -qE '^registry:[[:space:]]*robustadev[[:space:]]*$' "${VALUES}"; then
+    sed -i -E '0,/^registry:[[:space:]]*robustadev[[:space:]]*$/s||registry: mcr.microsoft.com/microsoft.aks.investigator|' "${VALUES}"
+    echo "==> Set chart registry to mcr.microsoft.com/microsoft.aks.investigator in values.yaml"
+  else
+    echo "warning: could not find 'registry: robustadev' in ${VALUES};" >&2
+    echo "         registry left unchanged." >&2
   fi
 fi
 

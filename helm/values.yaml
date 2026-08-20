@@ -52,7 +52,7 @@ autoscaling:
   behavior: {}
 
 image: holmes:0.36.0
-registry: robustadev
+registry: mcr.microsoft.com/microsoft.aks.investigator
 
 sentryDSN: ""
 

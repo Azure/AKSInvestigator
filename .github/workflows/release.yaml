@@ -66,14 +66,10 @@ jobs:
         trap 'rm -rf "${CHART_DIR}"' EXIT
         cp -a ./helm/. "${CHART_DIR}/"
 
-        # Keep upstream image/tag ownership in values.yaml, but publish the
-        # chart with the AKS Investigator MCR registry as its default.
-        if ! grep -qE '^registry:[[:space:]]*robustadev[[:space:]]*$' "${CHART_DIR}/values.yaml"; then
-          echo "::error::expected upstream registry not found in helm/values.yaml"
+        if ! grep -qE '^registry:[[:space:]]*mcr\.microsoft\.com/microsoft\.aks\.investigator[[:space:]]*$' "${CHART_DIR}/values.yaml"; then
+          echo "::error::expected AKS Investigator MCR registry not found in helm/values.yaml"
           exit 1
         fi
-        sed -i -E 's|^registry:[[:space:]]*robustadev[[:space:]]*$|registry: mcr.microsoft.com/microsoft.aks.investigator|' "${CHART_DIR}/values.yaml"
-        grep -qE '^registry:[[:space:]]*mcr\.microsoft\.com/microsoft\.aks\.investigator[[:space:]]*$' "${CHART_DIR}/values.yaml"
 
         helm package "${CHART_DIR}" \
           --version "${VERSION}" \
