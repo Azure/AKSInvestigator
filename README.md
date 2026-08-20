@@ -73,8 +73,7 @@ helm install aksi ./helm -n aks-investigator --create-namespace \
 # GPU — requires an NVIDIA-equipped node pool
 helm install aksi ./helm -n aks-investigator --create-namespace \
   -f ./helm/values-saturn.yaml \
-  --set saturn.gpu=true \
-  --set saturn.nodeSelector.agentpool=gpu
+  --set saturn.gpu=true
 
 # Bring your own model (no Saturn deployment — omit -f values-saturn.yaml)
 helm install aksi ./helm -n aks-investigator --create-namespace \

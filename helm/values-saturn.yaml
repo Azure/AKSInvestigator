@@ -88,10 +88,10 @@ saturn:
         cpu: "8"
         memory: "48Gi"
 
-  # Scheduling. On AKS GPU pools you usually want `agentpool: gpu` (or
-  # `kubernetes.azure.com/agentpool: gpu`). The CPU vLLM image requires
-  # AVX-512, so target an Intel pool (Standard_D*s_v5) — the prebuilt image
-  # SIGILLs on AMD EPYC (AVX2-only) nodes.
+  # Scheduling. GPU mode defaults to `agentpool: gpu` when this map is empty.
+  # Set a selector here to target a differently named GPU pool. CPU mode has no
+  # default selector; target an AVX-512 Intel pool (Standard_D*s_v5), because
+  # the prebuilt CPU image SIGILLs on AMD EPYC (AVX2-only) nodes.
   nodeSelector: {}
   tolerations: []
   affinity: {}

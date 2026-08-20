@@ -191,9 +191,12 @@ spec:
       restartPolicy: Always
       schedulerName: default-scheduler
       terminationGracePeriodSeconds: 30
-      {{- with .nodeSelector }}
+      {{- if .nodeSelector }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .nodeSelector | nindent 8 }}
+      {{- else if $gpu }}
+      nodeSelector:
+        agentpool: gpu
       {{- end }}
       {{- with .tolerations }}
       tolerations:
