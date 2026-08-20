@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-NAMESPACE="${HOLMES_NAMESPACE:-holmes}"
+NAMESPACE="${HOLMES_NAMESPACE:-aks-investigator}"
 SELECTOR="${HOLMES_SELECTOR:-app=holmes}"
 RELEASE="${HOLMES_RELEASE:-aksi}"
 DEPLOY="${HOLMES_DEPLOY:-}"
@@ -22,7 +22,7 @@ Examples:
   kubectl investigate "why is pod X crashlooping" --model saturn-vllm
 
 Environment:
-  HOLMES_NAMESPACE  namespace containing AKS Investigator (default: holmes)
+  HOLMES_NAMESPACE  namespace containing AKS Investigator (default: aks-investigator)
   HOLMES_RELEASE    Helm release to target (default: aksi)
   HOLMES_DEPLOY     deployment name; overrides release and discovery
   HOLMES_SELECTOR   fallback deployment selector (default: app=holmes)

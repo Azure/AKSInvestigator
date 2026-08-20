@@ -43,13 +43,13 @@ allowing output to be piped or captured.
 
 ## Configuration
 
-The default target is deployment `aksi-holmes` in namespace `holmes`. If that
-deployment does not exist, the plugin falls back to finding exactly one
+The default target is deployment `aksi-holmes` in namespace `aks-investigator`.
+If that deployment does not exist, the plugin falls back to finding exactly one
 deployment matching `app=holmes`.
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `HOLMES_NAMESPACE` | `holmes` | Namespace containing AKS Investigator. |
+| `HOLMES_NAMESPACE` | `aks-investigator` | Namespace containing AKS Investigator. |
 | `HOLMES_RELEASE` | `aksi` | Helm release used to form `<release>-holmes`. |
 | `HOLMES_DEPLOY` | _(auto)_ | Explicit deployment; skips release and label discovery. |
 | `HOLMES_SELECTOR` | `app=holmes` | Fallback deployment selector. |

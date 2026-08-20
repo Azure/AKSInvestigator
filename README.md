@@ -67,17 +67,17 @@ branch.
 
 ```bash
 # CPU (default) — installs anywhere with AVX-512 (Standard_D*s_v5)
-helm install aksi ./helm -n holmes --create-namespace \
+helm install aksi ./helm -n aks-investigator --create-namespace \
   -f ./helm/values-saturn.yaml
 
 # GPU — requires an NVIDIA-equipped node pool
-helm install aksi ./helm -n holmes --create-namespace \
+helm install aksi ./helm -n aks-investigator --create-namespace \
   -f ./helm/values-saturn.yaml \
   --set saturn.gpu=true \
   --set saturn.nodeSelector.agentpool=gpu
 
 # Bring your own model (no Saturn deployment — omit -f values-saturn.yaml)
-helm install aksi ./helm -n holmes --create-namespace \
+helm install aksi ./helm -n aks-investigator --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
@@ -88,7 +88,7 @@ install -m 0755 kubectl-plugin/kubectl-investigate ~/.local/bin/kubectl-investig
 kubectl investigate "are any workloads unhealthy?"
 ```
 
-The plugin defaults to the `aksi` release in namespace `holmes`. See the
+The plugin defaults to the `aksi` release in namespace `aks-investigator`. See the
 [plugin documentation](kubectl-plugin/README.md) for custom release and
 namespace settings.
 
