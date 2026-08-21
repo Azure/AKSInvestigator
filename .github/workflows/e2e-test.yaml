@@ -12,26 +12,18 @@ on:
     - .github/workflows/e2e-test.yaml
     - .github/workflows/release.yaml
   workflow_call:
-    inputs:
-      location:
-        description: Azure region for temporary resources
-        required: false
-        default: eastus
-        type: string
     secrets:
       AZURE_CONTAINER_REGISTRY_E2E:
         description: Name of the persistent ACR used for E2E charts
         required: true
-      RESOURCE_GROUP_E2E:
-        description: Name of the persistent resource group used for E2E clusters
+      AKS_RESOUCE_GROUP_E2E:
+        description: Resource group containing the persistent E2E AKS cluster
+        required: true
+      AKS_CLUSTER_NAME_E2E:
+        description: Name of the persistent E2E AKS cluster
         required: true
   workflow_dispatch:
     inputs:
-      location:
-        description: Azure region for temporary resources
-        required: false
-        default: eastus
-        type: string
       skip_cleanup:
         description: Retain temporary resources for debugging
         required: false
@@ -41,10 +33,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: aks-investigator-e2e-cluster
+  cancel-in-progress: false
+
 env:
-  LOCATION: ${{ inputs.location || 'eastus' }}
   ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
-  RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP_E2E }}
+  RESOURCE_GROUP: ${{ secrets.AKS_RESOUCE_GROUP_E2E }}
+  CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME_E2E }}
   RELEASE_NAME: aksi-e2e
   NAMESPACE: aks-investigator-e2e
 
@@ -71,29 +67,17 @@ jobs:
         az acr show --name "${ACR_NAME}" --output none
         az acr login --name "${ACR_NAME}"
         az group show --name "${RESOURCE_GROUP}" --output none
+        az aks show \
+          --resource-group "${RESOURCE_GROUP}" \
+          --name "${CLUSTER_NAME}" \
+          --output none
 
-    - name: Generate temporary resource names
+    - name: Generate chart version
       id: resources
       run: |
         set -euo pipefail
-        UNIQUE_ID="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
-        CLUSTER_NAME="aksi-e2e-${UNIQUE_ID}"
         CHART_VERSION="0.0.0-e2e.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
-        echo "cluster_name=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
         echo "chart_version=${CHART_VERSION}" >> "${GITHUB_OUTPUT}"
-
-    - name: Create temporary AKS cluster
-      run: |
-        set -euo pipefail
-        az aks create \
-          --resource-group "${RESOURCE_GROUP}" \
-          --name "${{ steps.resources.outputs.cluster_name }}" \
-          --location "${LOCATION}" \
-          --node-count 1 \
-          --node-vm-size Standard_D16s_v5 \
-          --enable-managed-identity \
-          --generate-ssh-keys \
-          --output none
 
     - name: Package and publish chart to E2E ACR
       run: |
@@ -105,11 +89,12 @@ jobs:
         helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" "oci://${ACR_NAME}.azurecr.io/e2e"
 
     - name: Connect to AKS cluster
+      id: connect
       run: |
         set -euo pipefail
         az aks get-credentials \
           --resource-group "${RESOURCE_GROUP}" \
-          --name "${{ steps.resources.outputs.cluster_name }}" \
+          --name "${CLUSTER_NAME}" \
           --overwrite-existing
         kubectl cluster-info
         kubectl get nodes
@@ -157,15 +142,18 @@ jobs:
         kubectl logs deployment/${RELEASE_NAME}-holmes --namespace "${NAMESPACE}" --all-containers --tail=200 || true
         kubectl get events --namespace "${NAMESPACE}" --sort-by=.lastTimestamp || true
 
-    - name: Delete temporary resources
+    - name: Uninstall chart from E2E cluster
+      if: always() && steps.connect.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
+      run: |
+        helm uninstall "${RELEASE_NAME}" \
+          --namespace "${NAMESPACE}" \
+          --ignore-not-found || true
+        kubectl delete namespace "${NAMESPACE}" --ignore-not-found || true
+
+    - name: Delete temporary chart artifact
       if: always() && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
       run: |
         az acr repository delete \
           --name "${ACR_NAME}" \
           --image "e2e/aks-investigator-chart:${{ steps.resources.outputs.chart_version }}" \
           --yes || true
-        az aks delete \
-          --resource-group "${RESOURCE_GROUP}" \
-          --name "${{ steps.resources.outputs.cluster_name }}" \
-          --yes \
-          --no-wait || true
