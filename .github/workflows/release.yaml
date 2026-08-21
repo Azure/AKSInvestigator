@@ -24,7 +24,13 @@ permissions:
   contents: read
 
 jobs:
+  e2e-test:
+    uses: ./.github/workflows/e2e-test.yaml
+    with:
+      location: eastus
+
   publish-chart:
+    needs: e2e-test
     runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
     steps:
     - name: Checkout AKSInvestigator

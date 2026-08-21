@@ -1,0 +1,166 @@
+name: E2E Test - Package and Deploy Chart
+
+on:
+  pull_request:
+    branches:
+    - main
+    paths:
+    - helm/**
+    - patches/**
+    - scripts/sync.sh
+    - UPSTREAM_VERSION
+    - .github/workflows/e2e-test.yaml
+    - .github/workflows/release.yaml
+  workflow_call:
+    inputs:
+      location:
+        description: Azure region for temporary resources
+        required: false
+        default: eastus
+        type: string
+  workflow_dispatch:
+    inputs:
+      location:
+        description: Azure region for temporary resources
+        required: false
+        default: eastus
+        type: string
+      skip_cleanup:
+        description: Retain temporary resources for debugging
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  LOCATION: ${{ inputs.location || 'eastus' }}
+  RELEASE_NAME: aksi-e2e
+  NAMESPACE: aks-investigator-e2e
+
+jobs:
+  package-deploy-test:
+    # Forked pull requests cannot be trusted with a self-hosted Azure runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ "self-hosted", "e2e" ]
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout AKSInvestigator
+      uses: actions/checkout@v5
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4
+
+    - name: Log in to Azure
+      run: az login --identity
+
+    - name: Generate temporary resource names
+      id: resources
+      run: |
+        set -euo pipefail
+        UNIQUE_ID="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+        RESOURCE_GROUP="aks-investigator-e2e-${UNIQUE_ID}"
+        ACR_NAME="aksie2e${UNIQUE_ID}"
+        CLUSTER_NAME="aksi-e2e-${UNIQUE_ID}"
+        CHART_VERSION="0.0.0-e2e.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+        echo "resource_group=${RESOURCE_GROUP}" >> "${GITHUB_OUTPUT}"
+        echo "acr_name=${ACR_NAME}" >> "${GITHUB_OUTPUT}"
+        echo "cluster_name=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
+        echo "chart_version=${CHART_VERSION}" >> "${GITHUB_OUTPUT}"
+
+    - name: Create temporary ACR and AKS cluster
+      run: |
+        set -euo pipefail
+        az group create \
+          --name "${{ steps.resources.outputs.resource_group }}" \
+          --location "${LOCATION}" \
+          --output none
+        az acr create \
+          --resource-group "${{ steps.resources.outputs.resource_group }}" \
+          --name "${{ steps.resources.outputs.acr_name }}" \
+          --location "${LOCATION}" \
+          --sku Basic \
+          --output none
+        az aks create \
+          --resource-group "${{ steps.resources.outputs.resource_group }}" \
+          --name "${{ steps.resources.outputs.cluster_name }}" \
+          --location "${LOCATION}" \
+          --node-count 1 \
+          --node-vm-size Standard_D16s_v5 \
+          --enable-managed-identity \
+          --generate-ssh-keys \
+          --output none
+
+    - name: Package and publish chart to temporary ACR
+      run: |
+        set -euo pipefail
+        ACR="${{ steps.resources.outputs.acr_name }}"
+        VERSION="${{ steps.resources.outputs.chart_version }}"
+        az acr login --name "${ACR}"
+        mkdir -p /tmp/chart
+        helm dependency build ./helm
+        helm package ./helm --version "${VERSION}" --app-version "e2e-${GITHUB_SHA::12}" -d /tmp/chart
+        helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" "oci://${ACR}.azurecr.io/e2e"
+
+    - name: Connect to AKS cluster
+      run: |
+        set -euo pipefail
+        az aks get-credentials \
+          --resource-group "${{ steps.resources.outputs.resource_group }}" \
+          --name "${{ steps.resources.outputs.cluster_name }}" \
+          --overwrite-existing
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: Install published chart
+      id: install
+      run: |
+        set -euo pipefail
+        helm upgrade --install "${RELEASE_NAME}" \
+          "oci://${{ steps.resources.outputs.acr_name }}.azurecr.io/e2e/aks-investigator-chart" \
+          --version "${{ steps.resources.outputs.chart_version }}" \
+          --namespace "${NAMESPACE}" \
+          --create-namespace \
+          --values ./helm/values-saturn.yaml \
+          --set saturn.gpu=false \
+          --wait \
+          --timeout 30m
+
+    - name: Verify chart deployment
+      run: |
+        set -euo pipefail
+        kubectl rollout status deployment/${RELEASE_NAME}-holmes \
+          --namespace "${NAMESPACE}" \
+          --timeout 5m
+        kubectl rollout status deployment/saturn-vllm \
+          --namespace "${NAMESPACE}" \
+          --timeout 5m
+        kubectl get service/${RELEASE_NAME}-holmes --namespace "${NAMESPACE}"
+
+    - name: Test with kubectl investigate
+      run: |
+        set -euo pipefail
+        install -m 0755 kubectl-plugin/kubectl-investigate "${RUNNER_TEMP}/kubectl-investigate"
+        export PATH="${RUNNER_TEMP}:${PATH}"
+        kubectl plugin list | grep -F "${RUNNER_TEMP}/kubectl-investigate"
+        HOLMES_NAMESPACE="${NAMESPACE}" HOLMES_RELEASE="${RELEASE_NAME}" \
+          kubectl investigate "How many nodes are in this cluster?" --model saturn-vllm
+
+    - name: Collect diagnostics
+      if: failure() && steps.install.outcome != 'skipped'
+      run: |
+        helm status "${RELEASE_NAME}" --namespace "${NAMESPACE}" || true
+        kubectl get all --namespace "${NAMESPACE}" -o wide || true
+        kubectl describe pods --namespace "${NAMESPACE}" || true
+        kubectl logs deployment/${RELEASE_NAME}-holmes --namespace "${NAMESPACE}" --all-containers --tail=200 || true
+        kubectl get events --namespace "${NAMESPACE}" --sort-by=.lastTimestamp || true
+
+    - name: Delete temporary resources
+      if: always() && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
+      run: |
+        az group delete \
+          --name "${{ steps.resources.outputs.resource_group }}" \
+          --yes \
+          --no-wait || true
