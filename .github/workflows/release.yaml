@@ -30,6 +30,7 @@ jobs:
       location: eastus
     secrets:
       AZURE_CONTAINER_REGISTRY_E2E: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
+      RESOURCE_GROUP_E2E: ${{ secrets.RESOURCE_GROUP_E2E }}
 
   publish-chart:
     needs: e2e-test
