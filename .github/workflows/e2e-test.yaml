@@ -41,15 +41,15 @@ env:
   ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
   RESOURCE_GROUP: ${{ secrets.AKS_RESOUCE_GROUP_E2E }}
   CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME_E2E }}
-  RELEASE_NAME: aksi-e2e
-  NAMESPACE: aks-investigator-e2e
 
 jobs:
-  package-deploy-test:
+  package-chart:
     # Forked pull requests cannot be trusted with a self-hosted Azure runner.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [ "self-hosted", "e2e" ]
-    timeout-minutes: 90
+    timeout-minutes: 15
+    outputs:
+      chart_version: ${{ steps.resources.outputs.chart_version }}
 
     steps:
     - name: Checkout AKSInvestigator
@@ -88,13 +88,46 @@ jobs:
         helm package ./helm --version "${VERSION}" --app-version "e2e-${GITHUB_SHA::12}" -d /tmp/chart
         helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" "oci://${ACR_NAME}.azurecr.io/e2e"
 
+  deploy-test:
+    needs: package-chart
+    runs-on: [ "self-hosted", "e2e" ]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+        - mode: cpu
+          gpu: false
+        - mode: gpu
+          gpu: true
+    env:
+      RELEASE_NAME: aksi-e2e-${{ matrix.mode }}
+      NAMESPACE: aks-investigator-e2e-${{ matrix.mode }}
+
+    steps:
+    - name: Checkout AKSInvestigator
+      uses: actions/checkout@v5
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4
+
+    - name: Log in to Azure and ACR
+      run: |
+        set -euo pipefail
+        az login --identity
+        az acr login --name "${ACR_NAME}"
+
     - name: Connect to AKS cluster
       id: connect
       run: |
         set -euo pipefail
+        KUBECONFIG_PATH="${RUNNER_TEMP}/kubeconfig-${{ matrix.mode }}"
+        echo "KUBECONFIG=${KUBECONFIG_PATH}" >> "${GITHUB_ENV}"
         az aks get-credentials \
           --resource-group "${RESOURCE_GROUP}" \
           --name "${CLUSTER_NAME}" \
+          --file "${KUBECONFIG_PATH}" \
           --overwrite-existing
         kubectl cluster-info
         kubectl get nodes
@@ -105,11 +138,11 @@ jobs:
         set -euo pipefail
         helm upgrade --install "${RELEASE_NAME}" \
           "oci://${ACR_NAME}.azurecr.io/e2e/aks-investigator-chart" \
-          --version "${{ steps.resources.outputs.chart_version }}" \
+          --version "${{ needs.package-chart.outputs.chart_version }}" \
           --namespace "${NAMESPACE}" \
           --create-namespace \
           --values ./helm/values-saturn.yaml \
-          --set saturn.gpu=false \
+          --set saturn.gpu=${{ matrix.gpu }} \
           --wait \
           --timeout 30m
 
@@ -150,10 +183,19 @@ jobs:
           --ignore-not-found || true
         kubectl delete namespace "${NAMESPACE}" --ignore-not-found || true
 
+  cleanup-chart:
+    needs: [ package-chart, deploy-test ]
+    if: always() && needs.package-chart.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
+    runs-on: [ "self-hosted", "e2e" ]
+    timeout-minutes: 10
+
+    steps:
+    - name: Log in to Azure
+      run: az login --identity
+
     - name: Delete temporary chart artifact
-      if: always() && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
       run: |
         az acr repository delete \
           --name "${ACR_NAME}" \
-          --image "e2e/aks-investigator-chart:${{ steps.resources.outputs.chart_version }}" \
+          --image "e2e/aks-investigator-chart:${{ needs.package-chart.outputs.chart_version }}" \
           --yes || true
