@@ -36,6 +36,7 @@ permissions:
 
 env:
   LOCATION: ${{ inputs.location || 'eastus' }}
+  ACR_NAME: aksinvestigatore2e
   RELEASE_NAME: aksi-e2e
   NAMESPACE: aks-investigator-e2e
 
@@ -56,32 +57,30 @@ jobs:
     - name: Log in to Azure
       run: az login --identity
 
+    - name: Verify E2E ACR access
+      run: |
+        set -euo pipefail
+        az acr show --name "${ACR_NAME}" --output none
+        az acr login --name "${ACR_NAME}"
+
     - name: Generate temporary resource names
       id: resources
       run: |
         set -euo pipefail
         UNIQUE_ID="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
         RESOURCE_GROUP="aks-investigator-e2e-${UNIQUE_ID}"
-        ACR_NAME="aksie2e${UNIQUE_ID}"
         CLUSTER_NAME="aksi-e2e-${UNIQUE_ID}"
         CHART_VERSION="0.0.0-e2e.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
         echo "resource_group=${RESOURCE_GROUP}" >> "${GITHUB_OUTPUT}"
-        echo "acr_name=${ACR_NAME}" >> "${GITHUB_OUTPUT}"
         echo "cluster_name=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
         echo "chart_version=${CHART_VERSION}" >> "${GITHUB_OUTPUT}"
 
-    - name: Create temporary ACR and AKS cluster
+    - name: Create temporary AKS cluster
       run: |
         set -euo pipefail
         az group create \
           --name "${{ steps.resources.outputs.resource_group }}" \
           --location "${LOCATION}" \
-          --output none
-        az acr create \
-          --resource-group "${{ steps.resources.outputs.resource_group }}" \
-          --name "${{ steps.resources.outputs.acr_name }}" \
-          --location "${LOCATION}" \
-          --sku Basic \
           --output none
         az aks create \
           --resource-group "${{ steps.resources.outputs.resource_group }}" \
@@ -93,16 +92,14 @@ jobs:
           --generate-ssh-keys \
           --output none
 
-    - name: Package and publish chart to temporary ACR
+    - name: Package and publish chart to E2E ACR
       run: |
         set -euo pipefail
-        ACR="${{ steps.resources.outputs.acr_name }}"
         VERSION="${{ steps.resources.outputs.chart_version }}"
-        az acr login --name "${ACR}"
         mkdir -p /tmp/chart
         helm dependency build ./helm
         helm package ./helm --version "${VERSION}" --app-version "e2e-${GITHUB_SHA::12}" -d /tmp/chart
-        helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" "oci://${ACR}.azurecr.io/e2e"
+        helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" "oci://${ACR_NAME}.azurecr.io/e2e"
 
     - name: Connect to AKS cluster
       run: |
@@ -119,7 +116,7 @@ jobs:
       run: |
         set -euo pipefail
         helm upgrade --install "${RELEASE_NAME}" \
-          "oci://${{ steps.resources.outputs.acr_name }}.azurecr.io/e2e/aks-investigator-chart" \
+          "oci://${ACR_NAME}.azurecr.io/e2e/aks-investigator-chart" \
           --version "${{ steps.resources.outputs.chart_version }}" \
           --namespace "${NAMESPACE}" \
           --create-namespace \
@@ -160,6 +157,10 @@ jobs:
     - name: Delete temporary resources
       if: always() && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
       run: |
+        az acr repository delete \
+          --name "${ACR_NAME}" \
+          --image "e2e/aks-investigator-chart:${{ steps.resources.outputs.chart_version }}" \
+          --yes || true
         az group delete \
           --name "${{ steps.resources.outputs.resource_group }}" \
           --yes \
