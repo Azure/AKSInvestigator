@@ -18,6 +18,10 @@ on:
         required: false
         default: eastus
         type: string
+    secrets:
+      AZURE_CONTAINER_REGISTRY_E2E:
+        description: Name of the persistent ACR used for E2E charts
+        required: true
   workflow_dispatch:
     inputs:
       location:
@@ -36,7 +40,7 @@ permissions:
 
 env:
   LOCATION: ${{ inputs.location || 'eastus' }}
-  ACR_NAME: aksinvestigatore2e
+  ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
   RELEASE_NAME: aksi-e2e
   NAMESPACE: aks-investigator-e2e
 
