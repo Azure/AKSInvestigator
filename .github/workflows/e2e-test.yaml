@@ -24,8 +24,8 @@ on:
         required: true
   workflow_dispatch:
     inputs:
-      skip_cleanup:
-        description: Retain temporary resources for debugging
+      keep_chart_installed:
+        description: Keep the Helm releases installed for online debugging
         required: false
         default: false
         type: boolean
@@ -176,7 +176,7 @@ jobs:
         kubectl get events --namespace "${NAMESPACE}" --sort-by=.lastTimestamp || true
 
     - name: Uninstall chart from E2E cluster
-      if: always() && steps.connect.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
+      if: always() && steps.connect.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.keep_chart_installed)
       run: |
         helm uninstall "${RELEASE_NAME}" \
           --namespace "${NAMESPACE}" \
@@ -185,7 +185,7 @@ jobs:
 
   cleanup-chart:
     needs: [ package-chart, deploy-test ]
-    if: always() && needs.package-chart.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.skip_cleanup)
+    if: always() && needs.package-chart.result == 'success'
     runs-on: [ "self-hosted", "e2e" ]
     timeout-minutes: 10
 
