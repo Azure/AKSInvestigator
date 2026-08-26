@@ -122,12 +122,12 @@ jobs:
       id: connect
       run: |
         set -euo pipefail
-        export KUBECONFIG="${RUNNER_TEMP}/kubeconfig-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.mode }}"
-        echo "KUBECONFIG=${KUBECONFIG}" >> "${GITHUB_ENV}"
+        KUBECONFIG_PATH="${RUNNER_TEMP}/kubeconfig-${{ matrix.mode }}"
+        echo "KUBECONFIG=${KUBECONFIG_PATH}" >> "${GITHUB_ENV}"
         az aks get-credentials \
           --resource-group "${RESOURCE_GROUP}" \
           --name "${CLUSTER_NAME}" \
-          --file "${KUBECONFIG}" \
+          --file "${KUBECONFIG_PATH}" \
           --overwrite-existing
         kubectl cluster-info
         kubectl get nodes
