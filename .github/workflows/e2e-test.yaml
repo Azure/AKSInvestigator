@@ -164,7 +164,7 @@ jobs:
         export PATH="${RUNNER_TEMP}:${PATH}"
         kubectl plugin list | grep -F "${RUNNER_TEMP}/kubectl-investigate"
         HOLMES_NAMESPACE="${NAMESPACE}" HOLMES_RELEASE="${RELEASE_NAME}" \
-          kubectl investigate "How many nodes are in this cluster?" --model saturn-vllm
+          kubectl investigate "How many nodes are in this cluster?" --model saturn-vllm --no-interactive
 
     - name: Collect diagnostics
       if: failure() && steps.install.outcome != 'skipped'
