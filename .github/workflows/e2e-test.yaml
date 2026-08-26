@@ -76,7 +76,7 @@ jobs:
       id: resources
       run: |
         set -euo pipefail
-        CHART_VERSION="0.0.0-e2e.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+        CHART_VERSION="0.0.1-e2e.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
         echo "chart_version=${CHART_VERSION}" >> "${GITHUB_OUTPUT}"
 
     - name: Package and publish chart to E2E ACR
