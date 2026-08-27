@@ -24,7 +24,15 @@ permissions:
   contents: read
 
 jobs:
+  e2e-test:
+    uses: ./.github/workflows/e2e-test.yaml
+    secrets:
+      AZURE_CONTAINER_REGISTRY_E2E: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
+      AKS_RESOUCE_GROUP_E2E: ${{ secrets.AKS_RESOUCE_GROUP_E2E }}
+      AKS_CLUSTER_NAME_E2E: ${{ secrets.AKS_CLUSTER_NAME_E2E }}
+
   publish-chart:
+    needs: e2e-test
     runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
     steps:
     - name: Checkout AKSInvestigator
