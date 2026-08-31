@@ -1,7 +1,7 @@
 name: Publish vLLM images to MCR
 
 # Show what is being mirrored in the run title (Actions list), e.g.
-# "Publish vLLM images to MCR v0.26.0".
+# "Publish vLLM images to MCR v0.28.0".
 run-name: >-
   Publish vLLM images to MCR ${{ inputs.tag || 'floor+newer' }}
 
@@ -10,11 +10,11 @@ run-name: >-
 # feeds MCR; it NEVER edits the chart.
 #
 # Saturn pins its images in helm/values-saturn.yaml:
-#   gpuImage.tag: v0.26.0
-#   cpuImage.tag: v0.26.0
+#   gpuImage.tag: v0.28.0
+#   cpuImage.tag: v0.28.0
 # Adopting a newer vLLM version stays a MANUAL edit to values-saturn.yaml — this
 # pipeline does not bump the chart or open PRs. It merely mirrors the current
-# floor (v0.26.0) and any newer vX.Y.Z release for publication to MCR.
+# floor (v0.28.0) and any newer vX.Y.Z release for publication to MCR.
 #
 # ACR source: <acr>.azurecr.io/public/microsoft.aks.investigator/vllm-openai:<tag>
 #             <acr>.azurecr.io/public/microsoft.aks.investigator/vllm-openai-cpu:<tag>
@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Specific vLLM tag to mirror, e.g. v0.26.0. Leave empty to mirror the floor (v0.26.0) plus any newer release."
+        description: "Specific vLLM tag to mirror, e.g. v0.28.0. Leave empty to mirror the floor (v0.28.0) plus any newer release."
         required: false
         type: string
       force:
@@ -44,7 +44,7 @@ env:
   # Baseline: the tag currently pinned in helm/values-saturn.yaml. The pipeline
   # mirrors this and any newer vX.Y.Z release, never older. Bump this in lockstep
   # if/when you manually raise the pin in values-saturn.yaml.
-  FLOOR_TAG: v0.26.0
+  FLOOR_TAG: v0.28.0
   # Both images share the same version tag. Space-separated Docker Hub repos
   # under the `vllm` namespace.
   IMAGES: "vllm-openai vllm-openai-cpu"
