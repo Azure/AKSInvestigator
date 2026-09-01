@@ -148,6 +148,9 @@ jobs:
     - name: Verify chart deployment
       run: |
         set -euo pipefail
+        kubectl set env deployment/${RELEASE_NAME}-holmes \
+          --namespace "${NAMESPACE}" \
+          OVERRIDE_MAX_OUTPUT_TOKEN=2048
         kubectl rollout status deployment/${RELEASE_NAME}-holmes \
           --namespace "${NAMESPACE}" \
           --timeout 5m
