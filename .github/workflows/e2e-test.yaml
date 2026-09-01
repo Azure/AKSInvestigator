@@ -16,7 +16,7 @@ on:
       AZURE_CONTAINER_REGISTRY_E2E:
         description: Name of the persistent ACR used for E2E charts
         required: true
-      AKS_RESOUCE_GROUP_E2E:
+      AKS_RESOURCE_GROUP_E2E:
         description: Resource group containing the persistent E2E AKS cluster
         required: true
       AKS_CLUSTER_NAME_E2E:
@@ -39,7 +39,7 @@ concurrency:
 
 env:
   ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
-  RESOURCE_GROUP: ${{ secrets.AKS_RESOUCE_GROUP_E2E }}
+  RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP_E2E }}
   CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME_E2E }}
 
 jobs:

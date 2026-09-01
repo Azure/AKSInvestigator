@@ -119,10 +119,10 @@ saturn:
     tag: v1.2.3
   gpuImage:
     repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai
-    tag: v0.26.0
+    tag: v0.28.0
   cpuImage:
     repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai-cpu
-    tag: v0.26.0
+    tag: v0.28.0
 ```
 
 ## Publish the Saturn model

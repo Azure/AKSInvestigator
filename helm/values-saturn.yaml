@@ -61,10 +61,10 @@ saturn:
   # Container images published for the AKS Investigator extension.
   gpuImage:
     repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai
-    tag: v0.26.0
+    tag: v0.28.0
   cpuImage:
     repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai-cpu
-    tag: v0.26.0
+    tag: v0.28.0
 
   # Resource requests/limits per variant. Keep these separate so a CPU-only
   # install never accidentally requests nvidia.com/gpu.

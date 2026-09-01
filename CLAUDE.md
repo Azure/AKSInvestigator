@@ -65,7 +65,7 @@ upstream vLLM images Saturn uses — `vllm/vllm-openai` (GPU) and
 `saturn/vllm-openai:<tag>` and `saturn/vllm-openai-cpu:<tag>`, via server-side
 `az acr import`. It runs weekly on a schedule and on manual dispatch (with an
 optional `tag` input). It mirrors the floor tag `FLOOR_TAG` (the version pinned
-in `values-saturn.yaml`, currently `v0.26.0`) plus any newer `vX.Y.Z` release,
+in `values-saturn.yaml`, currently `v0.28.0`) plus any newer `vX.Y.Z` release,
 and is idempotent (skips tags already in ACR).
 
 It **never edits the chart** — bumping the vLLM version Saturn actually runs is a
