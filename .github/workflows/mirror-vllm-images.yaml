@@ -9,10 +9,10 @@ run-name: >-
 # imports the upstream vLLM images that Saturn uses into the ACR namespace that
 # feeds MCR; it NEVER edits the chart.
 #
-# Saturn pins its images in helm/values-saturn.yaml:
+# Saturn pins its images in helm/values.yaml:
 #   gpuImage.tag: v0.28.0
 #   cpuImage.tag: v0.28.0
-# Adopting a newer vLLM version stays a MANUAL edit to values-saturn.yaml — this
+# Adopting a newer vLLM version stays a MANUAL chart update — this
 # pipeline does not bump the chart or open PRs. It merely mirrors the current
 # floor (v0.28.0) and any newer vX.Y.Z release for publication to MCR.
 #
@@ -41,9 +41,9 @@ permissions:
   contents: read
 
 env:
-  # Baseline: the tag currently pinned in helm/values-saturn.yaml. The pipeline
+  # Baseline: the tag currently pinned in helm/values.yaml. The pipeline
   # mirrors this and any newer vX.Y.Z release, never older. Bump this in lockstep
-  # if/when you manually raise the pin in values-saturn.yaml.
+  # if/when you manually raise the chart pin.
   FLOOR_TAG: v0.28.0
   # Both images share the same version tag. Space-separated Docker Hub repos
   # under the `vllm` namespace.

@@ -25,7 +25,7 @@ git status --short
 git diff --check
 git diff
 helm lint ./helm
-helm template test ./helm -f ./helm/values-saturn.yaml >/dev/null
+helm template test ./helm >/dev/null
 ```
 
 If validation passes, commit the synced chart and push the branch:
@@ -41,6 +41,10 @@ AKSInvestigator-only files listed in `KEEP_FILES`, and applies
 `patches/saturn-integration.patch` to the upstream Holmes templates. It updates
 `./helm/` only after the patch passes `git apply --check`, so an incompatible
 upstream change cannot leave a half-synced chart.
+
+The integration patch adds Saturn defaults directly to `helm/values.yaml`. This
+makes Saturn available to Arc extension and regular Helm installs, both of which
+load only the primary values file by default.
 
 If the patch fails, port the rejected Saturn hunks to the new upstream
 templates, refresh `patches/saturn-integration.patch`, and rerun the script.

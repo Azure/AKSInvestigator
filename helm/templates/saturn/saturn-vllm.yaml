@@ -4,11 +4,7 @@ Saturn vLLM model deployment.
 Renders ONLY when:
   - .Values.modelList is empty (i.e. the user has not pointed HolmesGPT
     at an external model catalog), AND
-  - .Values.saturn is set (typically via `-f helm/values-saturn.yaml`), AND
-  - .Values.saturn.enabled is true (default true in values-saturn.yaml).
-
-If values-saturn.yaml is not passed, .Values.saturn is undefined and this
-template renders nothing — the chart then behaves like upstream HolmesGPT.
+  - .Values.saturn.enabled is true (default true in values.yaml).
 
 The GPU vs CPU variant is selected by .Values.saturn.gpu (default: false).
 

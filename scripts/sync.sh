@@ -24,7 +24,6 @@ SATURN_PATCH="${REPO_ROOT}/patches/saturn-integration.patch"
 # and must be preserved across syncs. Paths are relative to ${DST_CHART}.
 KEEP_FILES=(
   "templates/saturn"
-  "values-saturn.yaml"
 )
 
 if [[ ! -d "${SRC_CHART}" ]]; then
