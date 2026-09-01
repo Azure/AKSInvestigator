@@ -13,15 +13,13 @@ applied to upstream templates. Understanding this split is essential before
 editing anything:
 
 - **Upstream-tracked (do NOT hand-patch):** everything under `helm/` that comes
-  from upstream, most importantly `helm/values.yaml`. The sync script pins the
-  upstream HolmesGPT image tag; the release workflow changes its registry only
-  in the packaged chart. Otherwise changes here should come from an upstream
-  sync, not manual edits.
+  from upstream, including the base content of `helm/values.yaml`. The sync script
+  pins the HolmesGPT image and registry, while the integration patch adds Saturn
+  defaults to `values.yaml`. Otherwise changes here should come from an upstream sync.
 - **AKSInvestigator-only (safe to edit, preserved by `sync.sh`):**
   - `helm/templates/saturn/` — the Saturn vLLM add-on
-  - `helm/values-saturn.yaml` — Saturn defaults (`saturn.*`)
-  - `patches/saturn-integration.patch` — the Saturn model-list, checksum, and
-    Holmes environment changes applied to upstream templates
+  - `patches/saturn-integration.patch` — Saturn defaults, model-list, checksum,
+    and Holmes environment changes applied to the upstream chart
 
 `scripts/sync.sh` stages the upstream chart, restores the files listed in
 `KEEP_FILES`, and applies `patches/saturn-integration.patch`. The destination is
@@ -43,9 +41,7 @@ HOLMESGPT_DIR=/path/to/holmesgpt ./scripts/sync.sh
 `saturn-ms/saturn-0202` with an OpenAI-compatible API at `/v1` on port 8000, so
 HolmesGPT has a model to talk to out of the box. Rendering rules (all must hold):
 
-- `-f helm/values-saturn.yaml` is passed (otherwise `.Values.saturn` is
-  undefined and the template renders nothing → chart behaves like upstream), AND
-- `.Values.saturn.enabled` is true (default in `values-saturn.yaml`), AND
+- `.Values.saturn.enabled` is true (default in `values.yaml`), AND
 - `.Values.modelList` is **empty** — as soon as `modelList` is non-empty, Saturn
   is fully suppressed and HolmesGPT uses the external models instead.
 
@@ -65,12 +61,13 @@ upstream vLLM images Saturn uses — `vllm/vllm-openai` (GPU) and
 `saturn/vllm-openai:<tag>` and `saturn/vllm-openai-cpu:<tag>`, via server-side
 `az acr import`. It runs weekly on a schedule and on manual dispatch (with an
 optional `tag` input). It mirrors the floor tag `FLOOR_TAG` (the version pinned
-in `values-saturn.yaml`, currently `v0.28.0`) plus any newer `vX.Y.Z` release,
+in `values.yaml`, currently `v0.28.0`) plus any newer `vX.Y.Z` release,
 and is idempotent (skips tags already in ACR).
 
-It **never edits the chart** — bumping the vLLM version Saturn actually runs is a
-manual edit to `gpuImage.tag`/`cpuImage.tag` in `values-saturn.yaml`. If you
-raise that pin, also bump `FLOOR_TAG` in the workflow.
+It **never edits the chart** — bumping the vLLM version Saturn actually runs
+requires updating `gpuImage.tag`/`cpuImage.tag` in the integration patch and
+regenerating `values.yaml` with `scripts/sync.sh`. Also bump `FLOOR_TAG` in the
+workflow.
 
 ## Layout
 
@@ -79,7 +76,6 @@ AKSInvestigator/
 ├── helm/                      # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml             # name: holmes; version placeholder 0.0.1
 │   ├── values.yaml            # synced upstream values; image tag pinned by sync
-│   ├── values-saturn.yaml     # AKSInvestigator-only (saturn.*)
 │   ├── crds/                  # healthcheck, scheduledhealthcheck, triggeredhealthcheck
 │   └── templates/
 │       ├── holmes*.yaml, operator-*.yaml, toolset-config.yaml, ...  # upstream
@@ -95,13 +91,13 @@ AKSInvestigator/
 
 ```bash
 # CPU (default) — needs AVX-512 (Standard_D*s_v5)
-helm install aksi ./helm -n aks-investigator --create-namespace -f ./helm/values-saturn.yaml
+helm install aksi ./helm -n aks-investigator --create-namespace
 
 # GPU — requires an NVIDIA node pool
-helm install aksi ./helm -n aks-investigator --create-namespace -f ./helm/values-saturn.yaml \
+helm install aksi ./helm -n aks-investigator --create-namespace \
   --set saturn.gpu=true
 
-# Bring your own model (no Saturn — omit -f values-saturn.yaml)
+# Bring your own model (a non-empty modelList suppresses Saturn)
 helm install aksi ./helm -n aks-investigator --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
@@ -112,11 +108,11 @@ its in-cluster endpoint to HolmesGPT's model list. The generated
 
 ## Working conventions
 
-- **Prefer editing the upstream chart upstream**, then `./scripts/sync.sh`. Hand-editing
-  upstream-tracked files (`values.yaml` especially) drifts from upstream and is
-  reverted on the next sync.
+- **Prefer editing the upstream chart upstream**, then `./scripts/sync.sh`.
+  Change AKS-specific Saturn defaults in `patches/saturn-integration.patch`, not
+  directly in `values.yaml`, because sync regenerates that file.
 - New AKS-only files must be added to `KEEP_FILES` in `scripts/sync.sh`.
-- Validate template changes with `helm template ./helm -f ./helm/values-saturn.yaml`
+- Validate template changes with `helm template ./helm`
   and `helm lint ./helm` before committing.
 - Commits use semantic PR title format: `<type>(<scope>): <description>`
   (e.g. `feat(helm): ...`).

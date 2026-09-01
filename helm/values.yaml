@@ -219,6 +219,99 @@ extraEnvVarsSecrets: []
 # underlying Kubernetes Secrets are actually mounted on the pod.
 modelList: {}
 
+# ---------------------------------------------------------------------------
+# Saturn vLLM model (AKSInvestigator add-on, not present in upstream HolmesGPT)
+# ---------------------------------------------------------------------------
+# Enabled by default for Arc extension and regular Helm installs. The Saturn
+# deployment is fully suppressed when modelList is non-empty, so HolmesGPT
+# uses the configured external models instead.
+saturn:
+  # Toggle the entire add-on. Even when true, the template ONLY renders if
+  # modelList is empty.
+  enabled: true
+
+  # GPU vs CPU selection. Default is CPU (false) so the chart installs on
+  # any node pool out of the box. Set to true on clusters with NVIDIA GPUs
+  # (and configure nodeSelector below to land on the GPU pool).
+  gpu: false
+
+  # ModelPack OCI artifact downloaded by an init container before vLLM starts.
+  # The internal ACR source path includes public/, but MCR strips that ingestion
+  # prefix. Publish this tag with publish-saturn-model.yaml before deployment.
+  modelArtifact:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/saturn
+    tag: "v1-20260202"
+  modelPullImage:
+    repository: mcr.microsoft.com/oss/v2/oras-project/oras
+    tag: v1.2.3
+  modelPath: /models/saturn-0202
+
+  # The name vLLM advertises on /v1/models.
+  servedModelName: saturn-vllm
+
+  # Context windows per runtime. saturn-0202 supports 262144 natively, but the
+  # serving limit must fit the available KV cache. HolmesGPT receives the same
+  # effective value as custom_args.max_context_size in its generated model list.
+  cpuMaxModelLen: 65536
+  gpuMaxModelLen: 262144
+
+  # Backward-compatible shared override. When set, this takes precedence over
+  # both variant-specific values above.
+  maxModelLen: ""
+  gpuMemoryUtilization: "0.90"
+
+  # CPU-only: size (GiB) of the vLLM CPU KV-cache pool (VLLM_CPU_KVCACHE_SPACE).
+  # This — not gpuMemoryUtilization — governs CPU KV capacity. saturn-0202 needs
+  # about 18 GiB for the default 65536-token context; 20 GiB leaves headroom.
+  # Keep this in sync with resources.cpu.memory below.
+  # Ignored for the GPU variant.
+  cpuKvCacheSpace: "20"
+
+  replicas: 1
+  shmSize: 2Gi
+
+  # Container images published for the AKS Investigator extension.
+  gpuImage:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai
+    tag: v0.28.0
+  cpuImage:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/vllm-openai-cpu
+    tag: v0.28.0
+
+  # Resource requests/limits per variant. Keep these separate so a CPU-only
+  # install never accidentally requests nvidia.com/gpu.
+  resources:
+    gpu:
+      requests:
+        cpu: "2"
+        memory: "8Gi"
+        gpu: "1"
+      limits:
+        cpu: "4"
+        memory: "16Gi"
+        gpu: "1"
+    cpu:
+      # Sized for --dtype=float32 (~16 GiB weights) + the configured CPU KV
+      # cache (VLLM_CPU_KVCACHE_SPACE) + runtime overhead.
+      requests:
+        cpu: "6"
+        memory: "38Gi"
+      limits:
+        cpu: "8"
+        memory: "48Gi"
+
+  # Scheduling. GPU mode defaults to `agentpool: gpu` when this map is empty.
+  # Set a selector here to target a differently named GPU pool. CPU mode has no
+  # default selector; target an AVX-512 Intel pool (Standard_D*s_v5), because
+  # the prebuilt CPU image SIGILLs on AMD EPYC (AVX2-only) nodes.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Extra args/env passed through to the vLLM container.
+  extraArgs: []
+  extraEnv: []
+
 # MCP (Model Context Protocol) Add-ons
 # These are optional MCP servers that can be deployed alongside Holmes
 mcpAddons:

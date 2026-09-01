@@ -141,7 +141,6 @@ jobs:
           --version "${{ needs.package-chart.outputs.chart_version }}" \
           --namespace "${NAMESPACE}" \
           --create-namespace \
-          --values ./helm/values-saturn.yaml \
           --set saturn.gpu=${{ matrix.gpu }} \
           --wait \
           --timeout 30m

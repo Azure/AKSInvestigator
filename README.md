@@ -15,9 +15,9 @@ plugin provides a direct CLI for asking the in-cluster agent questions.
 ## What's added vs upstream
 
 - **In-cluster Saturn vLLM model** (`helm/templates/saturn/saturn-vllm.yaml`,
-  defaults in `helm/values-saturn.yaml`).
-  When you `helm install` with `-f helm/values-saturn.yaml` AND `modelList`
-  is empty, an init container pulls the `saturn-ms/saturn-0202` ModelPack
+  defaults in `helm/values.yaml`).
+  When you `helm install` and `modelList` is empty, an init container pulls
+  the `saturn-ms/saturn-0202` ModelPack
   artifact from MCR into pod-local storage, then vLLM serves that local model
   through an OpenAI-compatible API at `/v1`. The chart automatically registers
   it in HolmesGPT's model list. Toggle the backend with:
@@ -29,9 +29,8 @@ plugin provides a direct CLI for asking the in-cluster agent questions.
     your GPU pool.
 
   As soon as `modelList` is non-empty, the Saturn deployment is fully
-  suppressed (HolmesGPT uses your external models instead). Without
-  `-f helm/values-saturn.yaml`, the chart behaves exactly like upstream
-  HolmesGPT.
+  suppressed (HolmesGPT uses your external models instead). Set
+  `saturn.enabled=false` to disable Saturn without configuring another model.
 
   See the original standalone manifests this template is derived from at
   `~/llm/holmesgpt/deploy/models/` for the rationale behind each flag.
@@ -46,7 +45,6 @@ AKSInvestigator/
 ├── helm/                       # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml
 │   ├── values.yaml             # synced upstream values; image tag pinned by sync
-│   ├── values-saturn.yaml      # AKSInvestigator-only defaults (saturn.*)
 │   ├── crds/
 │   └── templates/
 │       ├── ... upstream templates ...
@@ -67,15 +65,13 @@ branch.
 
 ```bash
 # CPU (default) — installs anywhere with AVX-512 (Standard_D*s_v5)
-helm install aksi ./helm -n aks-investigator --create-namespace \
-  -f ./helm/values-saturn.yaml
+helm install aksi ./helm -n aks-investigator --create-namespace
 
 # GPU — requires an NVIDIA-equipped node pool
 helm install aksi ./helm -n aks-investigator --create-namespace \
-  -f ./helm/values-saturn.yaml \
   --set saturn.gpu=true
 
-# Bring your own model (no Saturn deployment — omit -f values-saturn.yaml)
+# Bring your own model (a non-empty modelList suppresses Saturn)
 helm install aksi ./helm -n aks-investigator --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
