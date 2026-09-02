@@ -3,7 +3,7 @@
 A `kubectl` plugin that asks the in-cluster AKS Investigator to investigate a
 question about the current cluster. It is adapted from
 [`mainred/investigate`](https://github.com/mainred/investigate) for this chart's
-default `aksi` release in the `holmes` namespace.
+default `aks-investigator` release in the `aks-investigator` namespace.
 
 The plugin runs `python holmes_cli.py ask` inside the Holmes deployment with
 `kubectl exec`. Questions and additional Holmes CLI flags are forwarded
@@ -43,22 +43,22 @@ allowing output to be piped or captured.
 
 ## Configuration
 
-The default target is deployment `aksi-holmes` in namespace `aks-investigator`.
+The default target is deployment `aks-investigator-holmes` in namespace `aks-investigator`.
 If that deployment does not exist, the plugin falls back to finding exactly one
 deployment matching `app=holmes`.
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `HOLMES_NAMESPACE` | `aks-investigator` | Namespace containing AKS Investigator. |
-| `HOLMES_RELEASE` | `aksi` | Helm release used to form `<release>-holmes`. |
-| `HOLMES_DEPLOY` | _(auto)_ | Explicit deployment; skips release and label discovery. |
-| `HOLMES_SELECTOR` | `app=holmes` | Fallback deployment selector. |
-| `HOLMES_HOME` | `/tmp` | Writable home directory inside the Holmes pod. |
+| `INVESTIGATOR_NAMESPACE` | `aks-investigator` | Namespace containing AKS Investigator. |
+| `INVESTIGATOR_RELEASE` | `aks-investigator` | Helm release used to form `<release>-holmes`. |
+| `INVESTIGATOR_DEPLOY` | _(auto)_ | Explicit deployment; skips release and label discovery. |
+| `INVESTIGATOR_SELECTOR` | `app=holmes` | Fallback deployment selector. |
+| `INVESTIGATOR_HOME` | `/tmp` | Writable home directory inside the Holmes pod. |
 
 For a release named `investigator` in namespace `observability`:
 
 ```bash
-HOLMES_NAMESPACE=observability HOLMES_RELEASE=investigator \
+INVESTIGATOR_NAMESPACE=observability INVESTIGATOR_RELEASE=investigator \
   kubectl investigate "are any workloads unhealthy?"
 ```
 

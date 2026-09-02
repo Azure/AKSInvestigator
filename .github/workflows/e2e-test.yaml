@@ -6,6 +6,7 @@ on:
     - main
     paths:
     - helm/**
+    - kubectl-plugin/**
     - patches/**
     - scripts/sync.sh
     - UPSTREAM_VERSION
@@ -165,7 +166,7 @@ jobs:
         install -m 0755 kubectl-plugin/kubectl-investigate "${RUNNER_TEMP}/kubectl-investigate"
         export PATH="${RUNNER_TEMP}:${PATH}"
         kubectl plugin list | grep -F "${RUNNER_TEMP}/kubectl-investigate"
-        HOLMES_NAMESPACE="${NAMESPACE}" HOLMES_RELEASE="${RELEASE_NAME}" \
+        INVESTIGATOR_NAMESPACE="${NAMESPACE}" INVESTIGATOR_RELEASE="${RELEASE_NAME}" \
           kubectl investigate "How many nodes are in this cluster?" --model saturn-vllm --no-interactive
 
     - name: Collect diagnostics

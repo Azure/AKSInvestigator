@@ -4,11 +4,11 @@
 
 set -euo pipefail
 
-NAMESPACE="${HOLMES_NAMESPACE:-aks-investigator}"
-SELECTOR="${HOLMES_SELECTOR:-app=holmes}"
-RELEASE="${HOLMES_RELEASE:-aksi}"
-DEPLOY="${HOLMES_DEPLOY:-}"
-HOME_DIR="${HOLMES_HOME:-/tmp}"
+NAMESPACE="${INVESTIGATOR_NAMESPACE:-aks-investigator}"
+SELECTOR="${INVESTIGATOR_SELECTOR:-app=holmes}"
+RELEASE="${INVESTIGATOR_RELEASE:-aks-investigator}"
+DEPLOY="${INVESTIGATOR_DEPLOY:-}"
+HOME_DIR="${INVESTIGATOR_HOME:-/tmp}"
 
 usage() {
   cat >&2 <<EOF
@@ -22,11 +22,11 @@ Examples:
   kubectl investigate "why is pod X crashlooping" --model saturn-vllm
 
 Environment:
-  HOLMES_NAMESPACE  namespace containing AKS Investigator (default: aks-investigator)
-  HOLMES_RELEASE    Helm release to target (default: aksi)
-  HOLMES_DEPLOY     deployment name; overrides release and discovery
-  HOLMES_SELECTOR   fallback deployment selector (default: app=holmes)
-  HOLMES_HOME       HOME inside the pod (default: /tmp)
+  INVESTIGATOR_NAMESPACE  namespace containing AKS Investigator (default: aks-investigator)
+  INVESTIGATOR_RELEASE    Helm release to target (default: aks-investigator)
+  INVESTIGATOR_DEPLOY     deployment name; overrides release and discovery
+  INVESTIGATOR_SELECTOR   fallback deployment selector (default: app=holmes)
+  INVESTIGATOR_HOME       HOME inside the pod (default: /tmp)
 EOF
 }
 
@@ -54,7 +54,7 @@ if [[ -z "$DEPLOY" ]]; then
       0)
         echo "kubectl-investigate: no Holmes deployment found in namespace '$NAMESPACE'." >&2
         echo "  Looked for '$release_deploy', then selector '$SELECTOR'." >&2
-        echo "  Set HOLMES_NAMESPACE, HOLMES_RELEASE, HOLMES_DEPLOY, or HOLMES_SELECTOR to override." >&2
+        echo "  Set INVESTIGATOR_NAMESPACE, INVESTIGATOR_RELEASE, INVESTIGATOR_DEPLOY, or INVESTIGATOR_SELECTOR to override." >&2
         exit 1
         ;;
       1)
@@ -63,7 +63,7 @@ if [[ -z "$DEPLOY" ]]; then
       *)
         echo "kubectl-investigate: multiple Holmes deployments match '$SELECTOR' in namespace '$NAMESPACE':" >&2
         printf '  %s\n' "${deployments[@]}" >&2
-        echo "  Set HOLMES_RELEASE or HOLMES_DEPLOY to choose one." >&2
+        echo "  Set INVESTIGATOR_RELEASE or INVESTIGATOR_DEPLOY to choose one." >&2
         exit 1
         ;;
     esac
