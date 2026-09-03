@@ -42,6 +42,12 @@ spec:
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.saturn | toYaml | sha256sum }}
+        {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+        # Roll this pod when the remediation MCP auth token rotates — the token
+        # is read from a Secret into env, so a content change alone would not
+        # restart anything.
+        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.authTokenChecksum" . }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
@@ -151,6 +157,8 @@ spec:
         env:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
+          - name: ENABLE_JSON_LOGS_FORMAT
+            value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN
@@ -207,6 +215,16 @@ spec:
               secretKeyRef:
                 name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
                 key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
+          {{- end }}
+          {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+          # The remediation MCP server requires a bearer token on every HTTP
+          # request. toolset-config.yaml renders {{ "{{" }} env.K8S_REMEDIATION_MCP_TOKEN {{ "}}" }}
+          # into the Authorization header, so the token must live in this pod's env.
+          - name: K8S_REMEDIATION_MCP_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "holmes.kubernetesRemediationMcp.authSecretName" . }}
+                key: token
           {{- end }}
         {{- if or .Values.additional_env_froms .Values.extraEnvVarsSecrets }}
         envFrom:

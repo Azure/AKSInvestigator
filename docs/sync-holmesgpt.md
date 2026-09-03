@@ -5,7 +5,7 @@ create pull requests. Start with clean local clones of both repositories, then
 check out the HolmesGPT release tag you want to import:
 
 ```bash
-HOLMESGPT_VERSION=0.36.0
+HOLMESGPT_VERSION=0.40.0
 
 git -C ~/llm/holmesgpt fetch origin --tags
 git -C ~/llm/holmesgpt checkout "${HOLMESGPT_VERSION}"

@@ -1,5 +1,14 @@
 certificate: "" # base64 encoded
 logLevel: INFO
+# When true, logs are emitted as JSON (one object per line) instead of colored
+# text. Useful for log scrapers like Filebeat. When Holmes is deployed as a
+# subchart of the Robusta umbrella chart, global.enableJsonLogsFormat takes
+# precedence over this value.
+enableJsonLogsFormat: false
+
+# Values shared with/from a parent umbrella chart. Declared so templates can
+# safely reference .Values.global.* when Holmes is installed standalone.
+global: {}
 
 # Serve the Holmes API over HTTPS directly from the pod (in-app TLS, no ingress/proxy).
 # When enabled you must provide your own TLS secret via secretName (e.g. issued by
@@ -51,7 +60,7 @@ autoscaling:
   targetMemory: ""
   behavior: {}
 
-image: holmes:0.36.0
+image: holmes:0.40.0
 registry: mcr.microsoft.com/microsoft.aks.investigator
 
 sentryDSN: ""
@@ -69,6 +78,7 @@ revisionHistoryLimit: 10
 
 createServiceAccount: true
 customServiceAccountName: ""
+
 
 k8sRBAC: false
 
@@ -141,7 +151,8 @@ mcp_servers: {}
 # `initContainers`. Each path may be a directory (scanned for SKILL.md files
 # up to 2 levels deep) or an individual SKILL.md file. The chart sets
 # CUSTOM_SKILL_PATHS in the Holmes pod from this list (joined with `customSkills`).
-customSkillPaths: [] # - /etc/holmes/my-skills
+customSkillPaths: []
+  # - /etc/holmes/my-skills
 
 # Inline skill definitions. When non-empty, the chart creates a ConfigMap
 # named `<release>-holmes-skills` and mounts it at /etc/holmes/skills/, with
@@ -322,7 +333,7 @@ mcpAddons:
     serviceAccount:
       create: true
       name: "aws-api-mcp-sa"
-      annotations: {} # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
+      annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
     image: "aws-api-mcp-server:2.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
@@ -337,13 +348,13 @@ mcpAddons:
 
     config:
       region: "us-east-1"
-      readOnlyMode: true # Set to false to allow write operations (use with caution)
-      namespace: "" # Kubernetes namespace (defaults to release namespace if empty)
+      readOnlyMode: true   # Set to false to allow write operations (use with caution)
+      namespace: ""        # Kubernetes namespace (defaults to release namespace if empty)
 
     # Multi-account configuration
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
-      enabled: false # Set to true to enable multi-account access
+      enabled: false  # Set to true to enable multi-account access
       image: "multi-aws-api-mcp-server:2.1.0"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
@@ -351,7 +362,7 @@ mcpAddons:
 
     # Network policy to restrict access to MCP server
     networkPolicy:
-      enabled: true # Enable network isolation (recommended)
+      enabled: true  # Enable network isolation (recommended)
 
     # Custom LLM instructions (optional)
     # Leave empty to use default comprehensive instructions
@@ -370,43 +381,6 @@ mcpAddons:
     # Extra init containers to add to the AWS MCP pod
     extraInitContainers: []
 
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-
-  mariadb:
-    enabled: false
-
-    image: "mariadb-http-mcp-minimal:1.0.6"
-    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
-
-    config:
-      host: "" # MariaDB host
-      port: "3306" # MariaDB port
-      database: "" # Database name
-      username: "" # Username
-      password: "" # Password
-      namespace: "" # Kubernetes mcp server namespace
-
-      readOnlyMode: true
-      maxPoolSize: "5"
-      useSSL: true # Use SSL for database connection
-
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "250m"
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-
-    networkPolicy:
-      enabled: true # Network policy to restrict access to MCP server (recommended)
-
-    # Custom LLM instructions (optional). Leave empty to use default instructions
-    llmInstructions: ""
-
-    annotations: {}
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -435,15 +409,14 @@ mcpAddons:
 
     # Service account key authentication (recommended)
     serviceAccountKey:
-      secretName: ""
-        # Name of K8s secret containing the service account key (e.g., "gcp-sa-key")
-        # Secret must have a key named "key.json" with the service account JSON key
+      secretName: ""  # Name of K8s secret containing the service account key (e.g., "gcp-sa-key")
+                     # Secret must have a key named "key.json" with the service account JSON key
 
     # Kubernetes service account (for Workload Identity - currently not working with gcloud CLI)
     serviceAccount:
       create: true
       name: "gcp-mcp-sa"
-      annotations: {} # Add GKE Workload Identity annotations if needed
+      annotations: {}  # Add GKE Workload Identity annotations if needed
 
     # Container registry for GCP MCP images
     # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
@@ -452,16 +425,16 @@ mcpAddons:
 
     # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
     workloadIdentity:
-      enabled: false # Set to true for observability/storage MCPs
+      enabled: false  # Set to true for observability/storage MCPs
 
     networkPolicy:
       enabled: true
 
     config:
-      project: "" # Optional: Holmes uses this if not asked about a specific project
-      projectNumber: "" # GCP project number (only needed if using Workload Identity)
-      region: "us-central1" # Optional: Holmes uses this if not asked about a specific region
-      namespace: "" # MCP server installation namespace (defaults to release namespace if empty)
+      project: ""            # Optional: Holmes uses this if not asked about a specific project
+      projectNumber: ""      # GCP project number (only needed if using Workload Identity)
+      region: "us-central1"  # Optional: Holmes uses this if not asked about a specific region
+      namespace: ""          # MCP server installation namespace (defaults to release namespace if empty)
 
     # Individual MCP server toggles and configurations
     # gcloud MCP - General GCP management via gcloud CLI
@@ -514,8 +487,7 @@ mcpAddons:
     serviceAccount:
       create: true
       name: "azure-api-mcp-sa"
-      annotations: {}
-        # Add workload identity annotations here
+      annotations: {}  # Add workload identity annotations here
         # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
         # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
 
@@ -524,14 +496,14 @@ mcpAddons:
     imagePullPolicy: "IfNotPresent"
 
     config:
-      tenantId: "" # Azure tenant ID (required for workload identity)
-      subscriptionId: "" # Default Azure subscription ID
-      clientId: "" # Azure client ID (required for workload-identity and managed-identity)
-      readOnlyMode: true # Blocks write operations against the Azure API. Set to false to allow writes (use with caution). Default true matches AWS/MariaDB MCP addons.
-      authMethod: "workload-identity" # Options: workload-identity, managed-identity, service-principal
-      enableSecurityPolicy: false # Enable additional security policies
-      timeout: "120" # Command execution timeout in seconds
-      namespace: "" # MCP installation namespace (defaults to release namespace if empty)
+      tenantId: ""                      # Azure tenant ID (required for workload identity)
+      subscriptionId: ""                # Default Azure subscription ID
+      clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
+      readOnlyMode: true                # Blocks write operations against the Azure API. Set to false to allow writes (use with caution). Default true matches AWS/MariaDB MCP addons.
+      authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
+      enableSecurityPolicy: false       # Enable additional security policies
+      timeout: "120"                    # Command execution timeout in seconds
+      namespace: ""                     # MCP installation namespace (defaults to release namespace if empty)
 
     # Secret name for service principal authentication (if using service-principal auth)
     secretName: "azure-mcp-creds"
@@ -587,11 +559,11 @@ mcpAddons:
     auth:
       # Option 1: Personal Access Token (PAT)
       # Create a secret: kubectl create secret generic github-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
-      secretName: "" # Name of K8s secret containing the GitHub PAT
-      secretKey: "token" # Key in secret (default: "token")
+      secretName: ""      # Name of K8s secret containing the GitHub PAT
+      secretKey: "token"  # Key in secret (default: "token")
 
       # Option 2: GitHub App installation token
-      # Deploys a self-hosted MCP server that generates and refreshes installation tokens
+      # Deploys a self-hosted MCP server that generates and caches installation tokens
       # from GitHub App credentials. Uses a separate image with built-in token management.
       #   kubectl create secret generic holmes-github-app \
       #     --from-literal=GITHUB_APP_ID=<APP_ID> \
@@ -599,9 +571,14 @@ mcpAddons:
       #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       #     -n <NAMESPACE>
       githubApp:
-        secretName: "" # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.7" # Image with GitHub App token management
+        secretName: ""                                          # Name of K8s secret containing GitHub App credentials
+        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+        # ALPHA. Serve every organization the App is installed on, routing each
+        # tool call to that organization's installation token. Runs multiOrgImage
+        # instead of image, and makes GITHUB_APP_INSTALLATION_ID optional.
+        multiOrg: false
+        multiOrgImage: "github-app-mcp:2.0.0"
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)
@@ -670,12 +647,12 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
-    mcpGitlabVersion: "2.1.11"
+    mcpGitlabVersion: "2.1.46"
 
     auth:
       # K8s secret holding the GitLab Personal Access Token.
       # kubectl create secret generic gitlab-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
-      secretName: "" # Required when enabled=true
+      secretName: ""      # Required when enabled=true
       secretKey: "token"
 
     config:
@@ -687,25 +664,25 @@ mcpAddons:
       readOnly: false
 
       # Optional feature toggles for the @zereight/mcp-gitlab server
-      useWiki: false # USE_GITLAB_WIKI — enable wiki tools
-      useMilestone: false # USE_MILESTONE — enable milestone tools
-      usePipeline: true # USE_PIPELINE — enable pipeline/CI tools (recommended)
+      useWiki: false        # USE_GITLAB_WIKI — enable wiki tools
+      useMilestone: false   # USE_MILESTONE — enable milestone tools
+      usePipeline: true     # USE_PIPELINE — enable pipeline/CI tools (recommended)
 
       # Scope the MCP server to specific projects (optional)
-      projectId: "" # GITLAB_PROJECT_ID — default project ID
-      allowedProjectIds: "" # GITLAB_ALLOWED_PROJECT_IDS — comma-separated allowlist
+      projectId: ""           # GITLAB_PROJECT_ID — default project ID
+      allowedProjectIds: ""   # GITLAB_ALLOWED_PROJECT_IDS — comma-separated allowlist
 
       # Tool exposure (optional). Mirrors the github addon pattern.
       # `toolsets` enables groups of tools; `tools` is a hard allowlist that takes precedence.
-      toolsets: "" # GITLAB_TOOLSETS — comma-separated toolset IDs (empty = all)
-      tools: "" # GITLAB_TOOLS — comma-separated individual tool names
+      toolsets: ""   # GITLAB_TOOLSETS — comma-separated toolset IDs (empty = all)
+      tools: ""      # GITLAB_TOOLS — comma-separated individual tool names
 
       # SSL/TLS for self-hosted GitLab
       # Preferred: mount a trusted CA bundle via the caCert block below.
       # Last resort: set verifySsl: false (disables ALL TLS verification — insecure).
       verifySsl: true
       caCert:
-        secretName: "" # K8s secret containing the CA bundle (sets GITLAB_CA_CERT_PATH)
+        secretName: ""      # K8s secret containing the CA bundle (sets GITLAB_CA_CERT_PATH)
         secretKey: "ca.crt"
 
     resources:
@@ -741,8 +718,8 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     auth:
-      secretName: "" # Required: name of K8s secret containing the Sentry auth token
-      secretKey: "token" # Key in secret (default: "token")
+      secretName: ""      # Required: name of K8s secret containing the Sentry auth token
+      secretKey: "token"  # Key in secret (default: "token")
 
     config:
       # Sentry host URL (leave empty for sentry.io)
@@ -779,8 +756,8 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     auth:
-      secretName: "" # Name of K8s secret containing the Prefect API key (required for Cloud, optional for self-hosted)
-      secretKey: "token" # Key in secret (default: "token")
+      secretName: ""      # Name of K8s secret containing the Prefect API key (required for Cloud, optional for self-hosted)
+      secretKey: "token"  # Key in secret (default: "token")
 
     config:
       # Prefect API URL (required)
@@ -809,19 +786,38 @@ mcpAddons:
   # Provides safe kubectl command execution with security controls
   # WARNING: This addon can execute write operations. Configure allowedCommands carefully.
   kubernetesRemediation:
-    enabled: false # opt-in; defaults work once enabled (plug-and-play)
+    enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.1.0"
+    image: "kubernetes-remediation-mcp:1.2.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    # Bearer-token authentication for the server's HTTP endpoint. Without it,
+    # any pod that can reach the port gets the full tool surface (including
+    # cluster mutations) with the remediation ServiceAccount's RBAC, bypassing
+    # Holmes's human-approval gate. The chart generates a random per-release
+    # token Secret and wires both the server and Holmes automatically; the
+    # token is preserved across `helm upgrade` (rotate by deleting the Secret
+    # and upgrading again).
+    # Requires server image >= 1.2.0; when running an older pinned image, the
+    # extra env/header are ignored and behavior is unchanged (unauthenticated).
+    auth:
+      enabled: true
+      # Name of a pre-existing Secret holding the token under the key "token".
+      # When set, the chart creates no Secret and uses this one on both sides.
+      # Required for clusterless rendering (`helm template`, ArgoCD), where the
+      # auto-generated token cannot be looked up and would otherwise change on
+      # every render. Create it once with, e.g.:
+      #   kubectl create secret generic my-remediation-auth \
+      #     --from-literal=token="$(openssl rand -hex 32)"
+      existingSecret: ""
 
     serviceAccount:
       create: true
       name: "k8s-remediation-mcp-sa"
       annotations: {}
-      clusterRole: ""
-        # empty -> chart creates the scoped, least-privilege
-        # ClusterRole below. Set to bring-your-own ClusterRole name.
+      clusterRole: ""        # empty -> chart creates the scoped, least-privilege
+                             # ClusterRole below. Set to bring-your-own ClusterRole name.
 
     config:
       # Hard verb allowlist for the approval-gated run_kubectl_command fallback
@@ -832,6 +828,25 @@ mcpAddons:
       preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
       # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+
+      # ---- Diagnostic-pod target policy (server >= 1.2.0) ----
+      # run_preapproved_diagnostic_image is auto-approved and its images are
+      # network-probing tools, so the probe TARGET is the security boundary.
+      # Without this policy, prompt-injected agent output could point curl at the
+      # cloud metadata service and read instance credentials back, or POST cluster
+      # data to an external collector, with no human in the loop.
+      #
+      # Master switch. false disables ALL target checks, including the
+      # cloud-metadata/link-local ranges, and restores that behaviour. Prefer the
+      # two narrower knobs below; only disable if neither fits your environment.
+      diagnosticTargetPolicyEnabled: true
+      # Allow probes to reach hosts outside the cluster. false keeps probes
+      # in-cluster so an auto-approved probe cannot ship data to an external host.
+      # Cloud-metadata and link-local stay denied either way.
+      diagnosticAllowExternalTargets: false
+      # DNS suffixes counted as cluster-internal. Set this if you run a custom
+      # cluster domain (e.g. ".svc,.svc.mycorp.internal").
+      diagnosticInternalDnsSuffixes: ".svc,.svc.cluster.local,.cluster.local"
       # read_file_from_container path policy (allow roots minus secret/token mounts)
       fileReadAllowedPaths: "/"
       fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
@@ -851,13 +866,13 @@ mcpAddons:
         cpu: "200m"
 
     networkPolicy:
-      enabled: true # ingress-only; inert where the CNI doesn't enforce
+      enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
     # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
     # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
     # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
-    - "run_kubectl_command"
+      - "run_kubectl_command"
 
     # Optional override of the default LLM instructions
     llmInstructions: ""
@@ -904,8 +919,8 @@ mcpAddons:
       # Kubeconfig secret for connecting to external clusters
       # Create a secret: kubectl create secret generic k8s-mcp-kubeconfig --from-file=kubeconfig=/path/to/kubeconfig -n <NAMESPACE>
       kubeconfig:
-        secretName: "" # Name of K8s secret containing the kubeconfig file
-        secretKey: "kubeconfig" # Key in secret (default: "kubeconfig")
+        secretName: ""    # Name of K8s secret containing the kubeconfig file
+        secretKey: "kubeconfig"  # Key in secret (default: "kubeconfig")
       # Inline TOML server config. The chart creates a Secret containing this
       # content and mounts it at /etc/kubernetes-mcp/config.toml. Use this for
       # OAuth/OIDC settings — the kubernetes-mcp-server only accepts those via
@@ -932,8 +947,8 @@ mcpAddons:
       # if you'd rather create the Secret out-of-band:
       #   kubectl create secret generic k8s-mcp-config --from-file=config.toml=/path/to/config.toml -n <NAMESPACE>
       configSecret:
-        secretName: "" # Name of K8s secret containing config.toml
-        secretKey: "config.toml" # Key in secret (default: "config.toml")
+        secretName: ""         # Name of K8s secret containing config.toml
+        secretKey: "config.toml"  # Key in secret (default: "config.toml")
       # OAuth settings for Holmes → k8s-mcp-server authentication.
       # Passed as-is into the Holmes mcp_servers oauth config.
       # Example for OpenShift OAuth (per-user RBAC):
@@ -980,14 +995,14 @@ mcpAddons:
     dnsConfig:
       enabled: false
       policy: ClusterFirst
-      nameservers: []
-      searches: []
-      options: []
+      nameservers: [ ]
+      searches: [ ]
+      options: [ ]
 
     auth:
-      secretName: "" # Required: name of K8s secret containing Confluence credentials
-      usernameKey: "confluence-username" # Key in secret for the username/email
-      tokenKey: "confluence-api-token" # Key in secret for the API token
+      secretName: ""         # Required: name of K8s secret containing Confluence credentials
+      usernameKey: "confluence-username"  # Key in secret for the username/email
+      tokenKey: "confluence-api-token"   # Key in secret for the API token
 
     config:
       # Confluence instance URL (required)
@@ -1020,7 +1035,7 @@ mcpAddons:
 
 # Holmes Operator Configuration
 operator:
-  enabled: false # Set to true to deploy the operator
+  enabled: false  # Set to true to deploy the operator
 
   # Container image
   image: holmes-operator:0.0.0
@@ -1028,8 +1043,8 @@ operator:
   imagePullPolicy: IfNotPresent
 
   # Holmes API connection
-  holmesApiUrl: "" # Defaults to "http://<release-name>-holmes:80"
-  holmesApiTimeout: 300 # seconds
+  holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
+  holmesApiTimeout: 300  # seconds
 
   # Logging
   logLevel: INFO

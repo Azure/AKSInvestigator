@@ -118,9 +118,9 @@ diff --git a/helm/templates/holmes.yaml b/helm/templates/holmes.yaml
          # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
 -        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
 +        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.saturn | toYaml | sha256sum }}
-     spec:
-       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
-       {{- if .Values.imagePullSecrets }}
+         {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+         # Roll this pod when the remediation MCP auth token rotates — the token
+         # is read from a Secret into env, so a content change alone would not
 @@ -155,5 +157,9 @@ spec:
            - name: SENTRY_DSN
              value: {{ .Values.sentryDSN }}
@@ -135,10 +135,10 @@ diff --git a/helm/templates/toolset-config.yaml b/helm/templates/toolset-config.
 --- a/helm/templates/toolset-config.yaml
 +++ b/helm/templates/toolset-config.yaml
 @@ -1,4 +1,6 @@
--{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 +{{- $saturn := .Values.saturn | default dict -}}
 +{{- $saturnEnabled := and (empty .Values.modelList) (get $saturn "enabled") -}}
-+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled $saturnEnabled }}
++{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled $saturnEnabled }}
  apiVersion: v1
  kind: ConfigMap
  metadata:
