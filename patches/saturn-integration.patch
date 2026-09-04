@@ -81,10 +81,10 @@ diff --git a/helm/values.yaml b/helm/values.yaml
 +      # Sized for --dtype=float32 (~16 GiB weights) + the configured CPU KV
 +      # cache (VLLM_CPU_KVCACHE_SPACE) + runtime overhead.
 +      requests:
-+        cpu: "6"
++        cpu: "12"
 +        memory: "38Gi"
 +      limits:
-+        cpu: "8"
++        cpu: "12"
 +        memory: "48Gi"
 +
 +  # Scheduling. GPU mode defaults to `agentpool: gpu` when this map is empty.
