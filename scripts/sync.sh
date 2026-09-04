@@ -84,7 +84,7 @@ fi
 # on every sync so values.yaml never has to be hand-patched.
 VALUES="${DST_CHART}/values.yaml"
 if [[ "${UPSTREAM_REF}" != "unknown" && -f "${VALUES}" ]]; then
-  # Strip a leading `v` so the tag is a clean SemVer (e.g. v0.36.0 -> 0.36.0).
+  # Strip a leading `v` so the tag is a clean SemVer (e.g. v0.40.0 -> 0.40.0).
   IMAGE_TAG="${UPSTREAM_REF#v}"
   if grep -qE '^image:[[:space:]]*holmes:' "${VALUES}"; then
     sed -i -E "s|^(image:[[:space:]]*holmes:).*|\1${IMAGE_TAG}|" "${VALUES}"
@@ -101,6 +101,11 @@ if [[ "${UPSTREAM_REF}" != "unknown" && -f "${VALUES}" ]]; then
     echo "warning: could not find 'registry: robustadev' in ${VALUES};" >&2
     echo "         registry left unchanged." >&2
   fi
+
+  # Keep generated values deterministic when upstream releases contain
+  # trailing spaces or extra blank lines at EOF.
+  sed -i -E 's/[[:space:]]+$//' "${VALUES}"
+  sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "${VALUES}"
 fi
 
 # Rebrand the chart name from upstream's `holmes` to `aks-investigator-chart`. Chart.yaml

@@ -1,7 +1,7 @@
 name: Publish HolmesGPT image to MCR
 
 # Show what is being mirrored in the run title (Actions list), e.g.
-# "Publish HolmesGPT image to MCR 0.36.0".
+# "Publish HolmesGPT image to MCR 0.40.0".
 run-name: >-
   Publish HolmesGPT image to MCR ${{ inputs.tag || 'floor+newer' }}
 
@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Specific HolmesGPT tag to mirror, e.g. 0.36.0 (leading v optional). Leave empty to mirror the floor plus any newer release."
+        description: "Specific HolmesGPT tag to mirror, e.g. 0.40.0 (leading v optional). Leave empty to mirror the floor plus any newer release."
         required: false
         type: string
       force:
@@ -40,7 +40,7 @@ env:
   # Baseline: the oldest HolmesGPT image tag we still mirror. The pipeline
   # mirrors this and any newer X.Y.Z release, never older. Bump this in lockstep
   # when the chart's pinned HolmesGPT version moves forward.
-  FLOOR_TAG: 0.36.0
+  FLOOR_TAG: 0.40.0
   # Docker Hub source repo for the HolmesGPT image.
   SRC_REPO: robustadev/holmes
   # Destination repository within the ACR namespace that feeds MCR.
