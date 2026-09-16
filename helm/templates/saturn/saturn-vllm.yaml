@@ -76,6 +76,10 @@ spec:
             - --model={{ $modelPath }}
             - --served-model-name={{ $servedName }}
             - --port=8000
+            # Current saturn-0202 declares bfloat16, so auto selects BF16
+            # on supported CPU/GPU backends. Recheck the resolved dtype if
+            # changing the model or runtime; auto is not a speed benchmark.
+            - --dtype=auto
             # ADDED vs vLLM defaults: enable native OpenAI tool_calls API.
             # Required for the HolmesGPT agentic loop to advance.
             - --enable-auto-tool-choice
@@ -84,7 +88,6 @@ spec:
             # closing </tool_call> tag is reliably emitted, no opener).
             - --tool-call-parser=hermes
             {{- if $gpu }}
-            - --dtype=auto
             # GPU: use saturn-0202's native context limit from config.json.
             - --max-model-len={{ $maxModelLen }}
             - --gpu-memory-utilization={{ .gpuMemoryUtilization | default "0.90" }}
@@ -92,7 +95,6 @@ spec:
             # NOTE: no --device flag. The vllm-openai-cpu image auto-detects the
             # CPU platform. Passing --device=cpu on vLLM >=0.26.0 is parsed as
             # device_ids=['cpu'] and aborts with "Non-integer device ID 'cpu'".
-            - --dtype=float32
             # CPU: use a smaller context than GPU to limit KV-cache demand.
             - --max-model-len={{ $maxModelLen }}
             {{- end }}
@@ -113,10 +115,11 @@ spec:
             # structured outputs, which crashes with CPU-only PyTorch.
             - name: VLLM_USE_V2_MODEL_RUNNER
               value: "0"
-            # CPU KV-cache pool size in GiB. On CPU vLLM this (NOT
-            # gpu-memory-utilization) governs how many tokens the KV cache can
-            # hold. Keep this sized with resources.cpu below when increasing
-            # cpuMaxModelLen beyond its conservative default.
+            # Fixed CPU KV-cache pool in GiB; auto does not shrink this budget.
+            # At BF16, one 65536-token Saturn sequence needs ~9 GiB of KV
+            # data (~18 GiB at FP32). A 20 GiB pool retains concurrency
+            # headroom even with no active requests. Keep it sized with
+            # resources.cpu and cpuMaxModelLen, not gpu-memory-utilization.
             - name: VLLM_CPU_KVCACHE_SPACE
               value: {{ .cpuKvCacheSpace | default "20" | quote }}
             {{- end }}
@@ -168,6 +171,9 @@ spec:
               memory: {{ .resources.gpu.limits.memory | default "16Gi" | quote }}
               nvidia.com/gpu: {{ .resources.gpu.limits.gpu | default "1" | quote }}
             {{- else }}
+            # Retain the previous memory budgets with auto/BF16. They cover
+            # weights, the configured KV pool and runtime overhead; validate
+            # startup and loaded usage before lowering requests or limits.
             requests:
               cpu: {{ .resources.cpu.requests.cpu | default "6" | quote }}
               memory: {{ .resources.cpu.requests.memory | default "38Gi" | quote }}

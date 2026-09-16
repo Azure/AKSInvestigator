@@ -3,6 +3,9 @@ helm/tmp/
 helm/charts/
 *.tgz
 
+# Local performance reports, logs, metrics and temporary kubeconfigs
+/benchmark-results/
+
 # Python / editors
 __pycache__/
 *.pyc

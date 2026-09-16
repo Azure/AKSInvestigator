@@ -1,7 +1,7 @@
 diff --git a/helm/values.yaml b/helm/values.yaml
 --- a/helm/values.yaml
 +++ b/helm/values.yaml
-@@ -219,6 +219,99 @@ extraEnvVarsSecrets: []
+@@ -219,6 +219,106 @@ extraEnvVarsSecrets: []
  # underlying Kubernetes Secrets are actually mounted on the pod.
  modelList: {}
 -
@@ -17,9 +17,10 @@ diff --git a/helm/values.yaml b/helm/values.yaml
 +  # modelList is empty.
 +  enabled: true
 +
-+  # GPU vs CPU selection. Default is CPU (false) so the chart installs on
-+  # any node pool out of the box. Set to true on clusters with NVIDIA GPUs
-+  # (and configure nodeSelector below to land on the GPU pool).
++  # GPU vs CPU selection. Default CPU (false) needs a compatible CPU pool.
++  # Both variants use --dtype=auto: current saturn-0202 config declares BF16.
++  # This follows model/platform defaults, not a fastest-dtype benchmark.
++  # Set true for NVIDIA GPUs; use nodeSelector below to choose the pool.
 +  gpu: false
 +
 +  # ModelPack OCI artifact downloaded by an init container before vLLM starts.
@@ -47,11 +48,14 @@ diff --git a/helm/values.yaml b/helm/values.yaml
 +  maxModelLen: ""
 +  gpuMemoryUtilization: "0.90"
 +
-+  # CPU-only: size (GiB) of the vLLM CPU KV-cache pool (VLLM_CPU_KVCACHE_SPACE).
-+  # This — not gpuMemoryUtilization — governs CPU KV capacity. saturn-0202 needs
-+  # about 18 GiB for the default 65536-token context; 20 GiB leaves headroom.
-+  # Keep this in sync with resources.cpu.memory below.
-+  # Ignored for the GPU variant.
++  # CPU-only: fixed KV-cache allocation in GiB (VLLM_CPU_KVCACHE_SPACE).
++  # With current saturn-0202 BF16 KV dtype, one 65536-token sequence
++  # needs ~9 GiB (36 layers * 8 KV heads * 128 dims * K/V * 2 bytes).
++  # FP32 KV would need ~18 GiB. Capacity changes with effective KV dtype.
++  # The 20 GiB budget is retained for headroom/concurrency; auto does not
++  # shrink it, and zero active cache occupancy does not mean zero memory.
++  # Include this pool plus weights/runtime in resources.cpu below.
++  # Ignored for GPU; GPU memory is governed by gpuMemoryUtilization.
 +  cpuKvCacheSpace: "20"
 +
 +  replicas: 1
@@ -78,8 +82,11 @@ diff --git a/helm/values.yaml b/helm/values.yaml
 +        memory: "16Gi"
 +        gpu: "1"
 +    cpu:
-+      # Sized for --dtype=float32 (~16 GiB weights) + the configured CPU KV
-+      # cache (VLLM_CPU_KVCACHE_SPACE) + runtime overhead.
++      # Retained conservative request/limit: --dtype=auto selects BF16 for the
++      # current Saturn model (~8.2 GiB weights, versus ~16.4 GiB with FP32).
++      # Add the fixed 20 GiB KV pool and runtime/allocator overhead.
++      # The 38Gi request / 48Gi limit are unchanged from FP32 sizing; they
++      # are budgets, not measured BF16 usage. Re-measure before lowering.
 +      requests:
 +        cpu: "12"
 +        memory: "38Gi"

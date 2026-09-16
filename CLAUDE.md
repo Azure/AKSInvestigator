@@ -46,11 +46,16 @@ HolmesGPT has a model to talk to out of the box. Rendering rules (all must hold)
   is fully suppressed and HolmesGPT uses the external models instead.
 
 CPU vs GPU is selected by `saturn.gpu` (default `false`):
-- `saturn.gpu=false` — CPU vLLM, `--dtype=float32`,
+- `saturn.gpu=false` — CPU vLLM, `--dtype=auto`,
   `maxModelLen=65536`. Requires an **AVX-512 Intel** node pool (Standard_D*s_v5);
   the prebuilt CPU image SIGILLs on AMD EPYC (AVX2-only).
 - `saturn.gpu=true` — GPU vLLM, `--dtype=auto`, `maxModelLen=262144`, requests
   `nvidia.com/gpu: 1`. Set `saturn.nodeSelector` to land on the GPU pool.
+
+The current Saturn model declares BF16, which `auto` selects on supported
+backends. BF16 weights are ~8.2 GiB, and one 65536-token sequence needs ~9 GiB
+of BF16 KV data. The 20 GiB CPU KV pool and 38Gi/48Gi memory request/limit are
+retained budgets, not measured BF16 usage; re-measure before reducing them.
 
 ### Mirroring the vLLM images to ACR
 

@@ -35,6 +35,26 @@ if [[ $# -eq 0 ]]; then
   exit 64
 fi
 
+# Disable shell tracing before expanding credentials. Remote env assignments
+# are still visible in process arguments and potentially Kubernetes audit logs.
+set +x
+# --trace belongs to Holmes; only validate credentials for internal runs.
+braintrust=false
+previous_argument=""
+for argument in "$@"; do
+  [[ "$argument" == "--" ]] && break
+  if [[ ( "$previous_argument" == "--trace" && "$argument" == "braintrust" ) ||
+        "$argument" == "--trace=braintrust" ]]; then
+    braintrust=true
+    break
+  fi
+  previous_argument="$argument"
+done
+if $braintrust && [[ -z "${BRAINTRUST_API_KEY:-}" || -z "${BRAINTRUST_ORG:-}" ]]; then
+  echo "kubectl-investigate: --trace braintrust requires local BRAINTRUST_API_KEY and BRAINTRUST_ORG." >&2
+  exit 64
+fi
+
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl-investigate: kubectl was not found on PATH." >&2
   exit 127
@@ -85,5 +105,26 @@ for argument in "$@"; do
   esac
 done
 
+remote_command=(env "HOME=$HOME_DIR")
+if $braintrust; then
+  # Each assignment is one literal argument; never evaluate values as code.
+  remote_command+=("BRAINTRUST_API_KEY=$BRAINTRUST_API_KEY"
+                   "BRAINTRUST_ORG=$BRAINTRUST_ORG")
+fi
+remote_command+=(python holmes_cli.py ask "$@" "${default_mode[@]}")
+
+remote_timing=""
+if [[ "${INVESTIGATOR_TIMING:-0}" == 1 ]]; then
+  # Read by the optional performance collector using the client's monotonic clock.
+  printf '__AKSI_TIMING_EXEC_REQUEST__\n' >&2
+  remote_timing='printf "__AKSI_TIMING_EXEC_STARTED__\n" >&2; '
+fi
+
+if [[ "${INVESTIGATOR_TIMING:-0}" == 1 ]]; then
+  exec kubectl exec "${exec_flags[@]}" -n "$NAMESPACE" "deploy/$DEPLOY" -- \
+    bash -c "$remote_timing"'exec "$@"' investigate-timing \
+    "${remote_command[@]}"
+fi
+
 exec kubectl exec "${exec_flags[@]}" -n "$NAMESPACE" "deploy/$DEPLOY" -- \
-  env "HOME=$HOME_DIR" python holmes_cli.py ask "$@" "${default_mode[@]}"
+  "${remote_command[@]}"

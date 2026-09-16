@@ -1,0 +1,2 @@
+prometheus-client>=0.21,<1
+braintrust==0.40.0

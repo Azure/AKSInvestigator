@@ -65,3 +65,23 @@ INVESTIGATOR_NAMESPACE=observability INVESTIGATOR_RELEASE=investigator \
 `HOME` defaults to `/tmp` because the chart runs Holmes with a read-only root
 filesystem while mounting `/tmp` as writable. Holmes uses its home directory
 for cached toolset state.
+
+## Internal performance checks
+
+`--trace` is a Holmes CLI option, not a plugin-owned flag. For internal runs
+with `--trace braintrust` (or `--trace=braintrust`), the plugin requires nonempty
+local `BRAINTRUST_API_KEY` and `BRAINTRUST_ORG`; either missing value exits with
+code 64 before cluster access. The option is forwarded unchanged, and the two
+values are passed to `kubectl exec ... -- env` only for that CLI process.
+No prompts, SDK installation, or Helm updates are performed by the plugin.
+
+Credentials may appear in process arguments and Kubernetes audit records.
+Tracing uploads investigation data to Braintrust; use an authorized organization.
+See [../docs/cpu-performance.md](../docs/cpu-performance.md) for the separate
+benchmark collector and required local SDK setup. That collector requires
+tracing by default; its explicit `--no-braintrust` option goes before the
+question and collects timing/vLLM metrics without credentials or any `--trace`
+option. It is not a plugin flag, and the local SDK import remains mandatory.
+The separately approved [CPU resource sweep](../docs/cpu-performance.md#cpu-resource-sweep)
+uses that untraced mode, temporarily upgrades the CPU Helm release, and attempts
+guarded rollback; the plugin and collector alone do not make those Helm changes.
