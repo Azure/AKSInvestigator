@@ -7,6 +7,8 @@ Renders ONLY when:
   - .Values.saturn.enabled is true (default true in values.yaml).
 
 The GPU vs CPU variant is selected by .Values.saturn.gpu (default: false).
+Model files come from an init container image (modelSource=image, default)
+or ORAS (modelSource=oci). Image mode needs no ORAS or model download in the pod.
 
 Both variants serve an OpenAI-compatible API at /v1 on port 8000. The
 in-cluster service DNS is:
@@ -21,8 +23,10 @@ for the original standalone manifests this template is derived from.
 {{- $gpu := .gpu | default false -}}
 {{- $servedName := .servedModelName | default "saturn-vllm" -}}
 {{- $modelPath := .modelPath | default "/models/saturn-0202" -}}
-{{- $modelArtifact := printf "%s:%s" (required "saturn.modelArtifact.repository is required" .modelArtifact.repository) (required "saturn.modelArtifact.tag is required" .modelArtifact.tag) -}}
-{{- $modelPullImage := printf "%s:%s" (required "saturn.modelPullImage.repository is required" .modelPullImage.repository) (required "saturn.modelPullImage.tag is required" .modelPullImage.tag) -}}
+{{- $modelSource := .modelSource | default "image" -}}
+{{- if not (has $modelSource (list "oci" "image")) -}}
+{{- fail "saturn.modelSource must be oci or image" -}}
+{{- end -}}
 {{- $gpuImage := printf "%s:%s" (required "saturn.gpuImage.repository is required" .gpuImage.repository) (required "saturn.gpuImage.tag is required" .gpuImage.tag) -}}
 {{- $cpuImage := printf "%s:%s" (required "saturn.cpuImage.repository is required" .cpuImage.repository) (required "saturn.cpuImage.tag is required" .cpuImage.tag) -}}
 {{- $defaultMaxModelLen := ternary 262144 65536 $gpu -}}
@@ -52,15 +56,37 @@ spec:
         app: saturn-vllm
         app.kubernetes.io/component: saturn-model
     spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       initContainers:
+        {{- if eq $modelSource "image" }}
+        {{- $modelImage := .modelImage | default dict }}
+        - name: copy-model
+          image: {{ printf "%s:%s" (required "saturn.modelImage.repository is required in image mode" $modelImage.repository) (required "saturn.modelImage.tag is required in image mode" $modelImage.tag) | quote }}
+          imagePullPolicy: IfNotPresent
+          # The model image entrypoint copies /model into this shared volume.
+          # Pass the destination as a literal argument, not shell code.
+          args:
+            - {{ $modelPath | quote }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+        {{- else }}
+        {{- $modelArtifact := .modelArtifact | default dict }}
+        {{- $modelPullImage := .modelPullImage | default dict }}
         - name: pull-model
-          image: {{ $modelPullImage | quote }}
+          image: {{ printf "%s:%s" (required "saturn.modelPullImage.repository is required" $modelPullImage.repository) (required "saturn.modelPullImage.tag is required" $modelPullImage.tag) | quote }}
           imagePullPolicy: IfNotPresent
           args:
             - pull
-            - {{ $modelArtifact | quote }}
+            - {{ printf "%s:%s" (required "saturn.modelArtifact.repository is required" $modelArtifact.repository) (required "saturn.modelArtifact.tag is required" $modelArtifact.tag) | quote }}
             - --output
             - {{ $modelPath | quote }}
+        {{- end }}
           volumeMounts:
             - name: model
               mountPath: /models

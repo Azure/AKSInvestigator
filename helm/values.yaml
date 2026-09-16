@@ -247,6 +247,10 @@ saturn:
   # Set true for NVIDIA GPUs; use nodeSelector below to choose the pool.
   gpu: false
 
+  # Select model delivery: image (default) copies locally; oci uses ORAS.
+  # Both sources work with CPU/GPU runtimes and populate modelPath below.
+  modelSource: image
+
   # ModelPack OCI artifact downloaded by an init container before vLLM starts.
   # The internal ACR source path includes public/, but MCR strips that ingestion
   # prefix. Publish this tag with publish-saturn-model.yaml before deployment.
@@ -256,6 +260,14 @@ saturn:
   modelPullImage:
     repository: mcr.microsoft.com/oss/v2/oras-project/oras
     tag: v1.2.3
+
+  # Model-only container image, published alongside the ModelPack artifact.
+  # Image 0.1.0 contains the same model as OCI artifact v1-20260202.
+  # Its entrypoint copies /model to modelPath; no ORAS runs in the pod.
+  modelImage:
+    repository: mcr.microsoft.com/microsoft.aks.investigator/saturn
+    tag: "0.1.0"
+
   modelPath: /models/saturn-0202
 
   # The name vLLM advertises on /v1/models.
