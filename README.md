@@ -22,11 +22,20 @@ plugin provides a direct CLI for asking the in-cluster agent questions.
   through an OpenAI-compatible API at `/v1`. The chart automatically registers
   it in HolmesGPT's model list. Toggle the backend with:
   - `saturn.gpu=false` (default) — CPU build of vLLM,
-    `--dtype=float32`, `--max-model-len=65536`. Requires an AVX-512 Intel
+    `--dtype=auto`, `--max-model-len=65536`. Requires an AVX-512 Intel
     node pool (the prebuilt CPU image SIGILLs on AMD EPYC).
   - `saturn.gpu=true` — GPU build, `--dtype=auto`, `--max-model-len=262144`,
     requests `nvidia.com/gpu: 1`. Set `saturn.nodeSelector` to land on
     your GPU pool.
+
+  Both variants let vLLM resolve `auto` from the model configuration and
+  supported platform dtypes; it does not benchmark for the fastest precision.
+  The current Saturn model declares `bfloat16`, so supported CPU/GPU backends
+  select BF16 (~8.2 GiB of weights, versus ~16.4 GiB with FP32). For one
+  65,536-token sequence, KV data needs ~9 GiB at BF16 (~18 GiB at FP32).
+  CPU defaults retain a 20 GiB KV-cache budget and the previous 38 GiB memory
+  request / 48 GiB limit. These are conservative budgets, not measured BF16
+  usage; `auto` does not shrink the cache allocation or Kubernetes resources.
 
   As soon as `modelList` is non-empty, the Saturn deployment is fully
   suppressed (HolmesGPT uses your external models instead). Set
