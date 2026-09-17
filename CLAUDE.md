@@ -1,9 +1,11 @@
 # AKSInvestigator
 
 AKS-flavored fork of the [HolmesGPT](https://github.com/HolmesGPT/holmesgpt)
-Helm chart. This repo is **Helm chart only** — there is no application source
-code here. HolmesGPT itself lives upstream; this repo packages and deploys it
-for AKS with AKS-specific add-ons layered on top.
+Helm chart. This repo contains **Helm/deployment and model packaging**, not the
+HolmesGPT runtime application source. HolmesGPT itself lives upstream; this
+repo packages and deploys it for AKS with AKS-specific add-ons layered on top.
+The [model-image Dockerfile](docker/saturn-model/Dockerfile) is build packaging
+for model files and copy tools, not a new runtime application.
 
 ## Core model: sync + overlay
 
@@ -56,6 +58,62 @@ The current Saturn model declares BF16, which `auto` selects on supported
 backends. BF16 weights are ~8.2 GiB, and one 65536-token sequence needs ~9 GiB
 of BF16 KV data. The 20 GiB CPU KV pool and 38Gi/48Gi memory request/limit are
 retained budgets, not measured BF16 usage; re-measure before reducing them.
+
+### Model delivery and publication
+
+- `saturn.modelSource=oci` is an explicit opt-in:
+  the ORAS init container pulls `modelArtifact` from
+  `mcr.microsoft.com/microsoft.aks.investigator/saturn:v1-20260202`, using
+  `modelPullImage` (`mcr.microsoft.com/oss/v2/oras-project/oras:v1.2.3`).
+- `saturn.modelSource=image` is the default (including the template fallback).
+  Existing releases with saved `modelSource: oci` need an explicit image override
+  to switch delivery mode. Image mode uses `modelImage.repository` =
+  `mcr.microsoft.com/microsoft.aks.investigator/saturn` and
+  `modelImage.tag` = `0.1.0` (same model as artifact `v1-20260202`).
+  Kubelet/the container runtime pulls the image
+  (`IfNotPresent`); root-level `imagePullSecrets` now also applies to Saturn.
+  Users must create private-registry credentials in the release namespace;
+  these secrets do not authenticate ORAS artifact pulls.
+- The `copy-model` init container invokes the image entrypoint with one literal
+  destination argument, `saturn.modelPath` (default `/models/saturn-0202`). It
+  copies `/model` into the shared disk-backed `emptyDir` at `/models`. Custom
+  images must honor that contract with a read-only root filesystem and keep
+  the destination under `/models`; the chart does not override the entrypoint.
+  The built image contains Azure Linux 3.0 core, model files and `sh`/`cp`, not
+  vLLM, Python or ORAS. Image mode has no in-pod ORAS or HF model download.
+- One `linux/amd64` model image serves both current x86 CPU and NVIDIA GPU
+  pools; CPU/GPU vLLM images, scheduling requirements and RAM/KV budgets stay
+  unchanged. This is not zero-copy or network-free: nodes first download/cache
+  image layers, then init copies the files on every pod recreation. Losing the
+  `emptyDir` requires another copy; a retained node image cache helps avoid
+  re-downloading. Budget ~16.4 GiB (~17.6 GB) for two ~8.2 GiB model disk copies
+  (image + volume), plus runtime images and overhead. The model mount is not
+  tmpfs.
+
+The same **Publish Saturn model to MCR** workflow
+([.github/workflows/publish-saturn-model.yaml](.github/workflows/publish-saturn-model.yaml))
+resolves the HF revision once, uses AIKit to download/package one local
+ModelPack OCI layout, and extracts its local files with `oras pull --oci-layout`
+without another HF/registry model download. It publishes the existing OCI
+artifact and builds/pushes the model-only image using
+[docker/saturn-model/Dockerfile](docker/saturn-model/Dockerfile). Separate
+workflow inputs select the artifact `tag` (default `v1-20260202`) and
+`image_tag` (default `0.1.0`). In the shared repository, artifact SHA tags use
+`sha-<first-12-commit-characters>` and image SHA tags use
+`image-sha-<first-12-commit-characters>` so the manifests cannot overwrite each
+other. Release tags must differ; opposite-format SHA prefixes are rejected:
+
+| Output | Source ACR | Expected MCR |
+| --- | --- | --- |
+| ModelPack | `<acr>.azurecr.io/public/microsoft.aks.investigator/saturn:<tag>` | `mcr.microsoft.com/microsoft.aks.investigator/saturn:<tag>` |
+| Model image | `<acr>.azurecr.io/public/microsoft.aks.investigator/saturn:<image_tag>` | `mcr.microsoft.com/microsoft.aks.investigator/saturn:<image_tag>` |
+
+Image `0.1.0` maps to artifact `v1-20260202`; both are built from the same
+resolved HF revision but use distinct tags in the same repository.
+MCR policy must allow both formats and propagation must complete; the workflow verifies
+ACR, not MCR. Verify the target image before deploying with the image default; do not treat
+configured defaults as evidence of publication or a passed end-to-end deployment.
+See [README.md](README.md) for defaults and image-mode/private-ACR install examples.
 
 ### Mirroring the vLLM images to ACR
 

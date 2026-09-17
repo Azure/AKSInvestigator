@@ -1,13 +1,17 @@
 name: Publish Saturn model to MCR
 
 run-name: >-
-  Publish Saturn model ${{ inputs.revision }} as ${{ inputs.tag }}
+  Publish Saturn model ${{ inputs.revision }} — artifact ${{ inputs.tag }}, image ${{ inputs.image_tag }}
 
-# AIKit writes a local ModelPack OCI layout; ORAS then copies that layout to
-# the ACR namespace used as the source for MCR publication.
+# AIKit downloads the resolved model once into a local ModelPack OCI layout.
+# Publish that artifact AND a runnable model-only image built from its files.
+# ORAS is used only by this publishing job when the chart uses modelSource=image.
 #
-# ACR: <acr>.azurecr.io/public/microsoft.aks.investigator/saturn:<tag>
-# MCR: mcr.microsoft.com/microsoft.aks.investigator/saturn:<tag>
+# ACR: <acr>.azurecr.io/public/microsoft.aks.investigator/saturn:<artifact-tag>
+#      <acr>.azurecr.io/public/microsoft.aks.investigator/saturn:<image-tag>
+# MCR: mcr.microsoft.com/microsoft.aks.investigator/saturn:<artifact-tag>
+#      mcr.microsoft.com/microsoft.aks.investigator/saturn:<image-tag>
+# Initial mapping: model image 0.1.0 contains artifact v1-20260202's model.
 on:
   workflow_dispatch:
     inputs:
@@ -17,9 +21,14 @@ on:
         default: main
         type: string
       tag:
-        description: "Saturn release tag used by the chart, e.g. v1-20260202. An immutable sha-<commit> tag is also published."
+        description: "ModelPack OCI artifact tag. A sha-<commit> tag is also published."
         required: false
         default: "v1-20260202"
+        type: string
+      image_tag:
+        description: "Model image version. 0.1.0 corresponds to artifact v1-20260202. An image-sha-<commit> tag is also published."
+        required: false
+        default: "0.1.0"
         type: string
 
 permissions:
@@ -50,6 +59,7 @@ jobs:
       env:
         REVISION: ${{ inputs.revision }}
         FRIENDLY_TAG: ${{ inputs.tag }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
       run: |
         set -euo pipefail
 
@@ -64,10 +74,25 @@ jobs:
           echo "::error::invalid OCI tag: ${FRIENDLY_TAG}"
           exit 1
         fi
+        if [[ -n "${IMAGE_TAG}" && ! "${IMAGE_TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+          echo "::error::invalid model image tag: ${IMAGE_TAG}"
+          exit 1
+        fi
+        # Both formats share one repository; never publish them to one tag.
+        if [[ -n "${FRIENDLY_TAG}" && "${FRIENDLY_TAG}" == "${IMAGE_TAG}" ]]; then
+          echo "::error::artifact and image release tags must differ"
+          exit 1
+        fi
+        if [[ "${FRIENDLY_TAG}" == image-sha-* || "${IMAGE_TAG}" == sha-* ]]; then
+          echo "::error::sha-* is reserved for artifacts; image-sha-* is reserved for images"
+          exit 1
+        fi
 
         immutable_tag="sha-${sha:0:12}"
+        immutable_image_tag="image-sha-${sha:0:12}"
         echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
         echo "immutable_tag=${immutable_tag}" >> "${GITHUB_OUTPUT}"
+        echo "immutable_image_tag=${immutable_image_tag}" >> "${GITHUB_OUTPUT}"
         echo "Resolved ${HF_MODEL}@${REVISION} to ${sha}"
 
     - name: Package model as a ModelPack OCI artifact
@@ -88,6 +113,26 @@ jobs:
           -
 
         test -f "${OCI_DIR}/layout/index.json"
+
+    - name: Prepare model image from the local ModelPack
+      run: |
+        set -euo pipefail
+        image_context="${RUNNER_TEMP}/saturn-model-image"
+        rm -rf "${image_context}"
+        mkdir -p "${image_context}/model"
+
+        # Read from disk, not the registry or Hugging Face a second time.
+        oras pull --oci-layout "${RUNNER_TEMP}/saturn-model/layout:${MODEL_NAME}" \
+          --output "${image_context}/model"
+        test -s "${image_context}/model/config.json"
+        test -s "${image_context}/model/model.safetensors.index.json"
+        # Fail before publication if the index references an absent/empty shard.
+        shards="$(jq -er '.weight_map | select(type == "object" and length > 0) | .[]' \
+          "${image_context}/model/model.safetensors.index.json")"
+        while IFS= read -r shard; do
+          [[ "${shard}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.safetensors$ ]]
+          test -s "${image_context}/model/${shard}"
+        done < <(printf '%s\n' "${shards}" | sort -u)
 
     - name: Log in to Azure and ACR
       env:
@@ -127,4 +172,52 @@ jobs:
           if [[ -n "${FRIENDLY_TAG}" ]]; then
             echo "- MCR alias: \`mcr.microsoft.com/${MCR_REPO}:${FRIENDLY_TAG}\`"
           fi
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Publish model container image
+      env:
+        ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+        FRIENDLY_TAG: ${{ inputs.image_tag }}
+        ARTIFACT_TAG: ${{ inputs.tag }}
+        ARTIFACT_SHA_TAG: ${{ steps.model.outputs.immutable_tag }}
+        IMMUTABLE_TAG: ${{ steps.model.outputs.immutable_image_tag }}
+        MODEL_SHA: ${{ steps.model.outputs.sha }}
+      run: |
+        set -euo pipefail
+        registry="${ACR}.azurecr.io"
+        immutable_ref="${registry}/${DST_REPO}:${IMMUTABLE_TAG}"
+        tags=(--tag "${immutable_ref}")
+        if [[ -n "${FRIENDLY_TAG}" && "${FRIENDLY_TAG}" != "${IMMUTABLE_TAG}" ]]; then
+          tags+=(--tag "${registry}/${DST_REPO}:${FRIENDLY_TAG}")
+        fi
+
+        # Model data + copy tools only, independent of CPU/GPU vLLM versions.
+        # amd64 matches the chart's current x86 CPU and NVIDIA GPU pools.
+        docker buildx build \
+          --platform linux/amd64 \
+          --file docker/saturn-model/Dockerfile \
+          --build-arg "HF_MODEL=${HF_MODEL}" \
+          --build-arg "MODEL_REVISION=${MODEL_SHA}" \
+          --metadata-file "${RUNNER_TEMP}/saturn-model-image-metadata.json" \
+          "${tags[@]}" --push "${RUNNER_TEMP}/saturn-model-image"
+
+        oras manifest fetch "${immutable_ref}" >/dev/null
+        if [[ -n "${FRIENDLY_TAG}" && "${FRIENDLY_TAG}" != "${IMMUTABLE_TAG}" ]]; then
+          oras manifest fetch "${registry}/${DST_REPO}:${FRIENDLY_TAG}" >/dev/null
+        fi
+        digest="$(jq -er '.["containerimage.digest"]' \
+          "${RUNNER_TEMP}/saturn-model-image-metadata.json")"
+        {
+          echo "### Saturn model container image"
+          echo
+          echo "- Model: \`${HF_MODEL}@${MODEL_SHA}\`"
+          echo "- Release mapping: image \`${FRIENDLY_TAG:-${IMMUTABLE_TAG}}\` = artifact \`${ARTIFACT_TAG:-${ARTIFACT_SHA_TAG}}\` (same model revision)."
+          echo "- Published ACR image: \`${immutable_ref}\`"
+          echo "- Image digest: \`${digest}\`"
+          echo "- Expected MCR image: \`mcr.microsoft.com/${MCR_REPO}:${IMMUTABLE_TAG}\`"
+          if [[ -n "${FRIENDLY_TAG}" ]]; then
+            echo "- Expected MCR alias: \`mcr.microsoft.com/${MCR_REPO}:${FRIENDLY_TAG}\`"
+          fi
+          echo "- Chart option: \`saturn.modelSource=image\` (no ORAS in the pod)."
+          echo "- ACR push verification does not confirm MCR propagation. Verify the MCR image before deployment."
         } >> "${GITHUB_STEP_SUMMARY}"
