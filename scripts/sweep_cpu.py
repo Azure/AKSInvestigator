@@ -35,7 +35,8 @@ COLUMNS = [
     "cpu", "status", "wall_seconds", "exec_startup_seconds",
     "ttft_mean_seconds",
     "prefill_seconds", "decode_seconds", "requests", "prompt_tokens",
-    "generation_tokens", "prefix_ratio", "working_gib", "throttle_ratio",
+    "generation_tokens", "generation_tokens_per_wall_second",
+    "prefix_ratio", "working_gib", "throttle_ratio",
     "rollout_seconds",
 ]
 NOTES = [
@@ -167,7 +168,7 @@ def main():
     parser.add_argument("--namespace", default="aks-investigator-cpu")
     parser.add_argument("--release", default="aksi-cpu")
     parser.add_argument("--levels", nargs="+", type=int,
-                        default=[6, 7, 8, 9, 10, 12])
+                        default=list(range(6, 13)))
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--rollout-timeout", type=int, default=1200)
     parser.add_argument("question", nargs="?", default=(
@@ -175,9 +176,9 @@ def main():
         "Use read-only tools and answer in one sentence."))
     args = parser.parse_args()
     if (args.timeout <= 0 or args.rollout_timeout <= 0 or
-            any(n not in (6, 7, 8, 9, 10, 12) for n in args.levels) or
+            any(n not in range(6, 13) for n in args.levels) or
             len(set(args.levels)) != len(args.levels)):
-        parser.error("Positive timeouts; distinct levels from 6,7,8,9,10,12")
+        parser.error("Positive timeouts; distinct levels from 6 through 12")
     os.umask(0o077)
     repo = Path(__file__).resolve().parents[1]
     tag = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -500,6 +501,9 @@ def main():
                 requests=counters["request_success_total"],
                 prompt_tokens=counters["prompt_tokens_total"],
                 generation_tokens=counters["generation_tokens_total"],
+                generation_tokens_per_wall_second=(
+                    counters["generation_tokens_total"] / row["wall_seconds"]
+                    if row["wall_seconds"] > 0 else None),
                 prefix_ratio=metrics["prefix_cache_hit_ratio"])
             guard()
             row.update(status="complete", comparable=True, finished_at=now())

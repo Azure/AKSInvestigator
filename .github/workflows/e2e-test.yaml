@@ -9,7 +9,9 @@ on:
     - kubectl-plugin/**
     - patches/**
     - scripts/sync.sh
+    - scripts/performance_benchmark.py
     - UPSTREAM_VERSION
+    - .github/workflows/plugin-binaries.yaml
     - .github/workflows/e2e-test.yaml
     - .github/workflows/release.yaml
   workflow_call:
@@ -44,7 +46,13 @@ env:
   CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME_E2E }}
 
 jobs:
+  # This hosted binary gate also runs for fork/dependabot PR check-in. Only
+  # trusted PRs continue to the self-hosted Azure packaging/deployment jobs.
+  plugin-checkin:
+    uses: ./.github/workflows/plugin-binaries.yaml
+
   package-chart:
+    needs: plugin-checkin
     # Forked pull requests cannot be trusted with a self-hosted Azure runner.
     if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [ "self-hosted", "e2e" ]
@@ -113,6 +121,20 @@ jobs:
     - name: Set up Helm
       uses: azure/setup-helm@v4
 
+    - name: Download the tested Linux plugin
+      uses: actions/download-artifact@v4
+      with:
+        name: kubectl-investigate-linux-amd64
+        path: ${{ runner.temp }}/investigate-plugin
+
+    - name: Verify and install plugin binary
+      run: |
+        set -euo pipefail
+        cd "${RUNNER_TEMP}/investigate-plugin"
+        sha256sum --check SHA256SUMS
+        chmod +x kubectl-investigate
+        echo "${RUNNER_TEMP}/investigate-plugin" >> "${GITHUB_PATH}"
+
     - name: Log in to Azure and ACR
       run: |
         set -euo pipefail
@@ -163,11 +185,16 @@ jobs:
     - name: Test with kubectl investigate
       run: |
         set -euo pipefail
-        install -m 0755 kubectl-plugin/kubectl-investigate "${RUNNER_TEMP}/kubectl-investigate"
-        export PATH="${RUNNER_TEMP}:${PATH}"
-        kubectl plugin list | grep -F "${RUNNER_TEMP}/kubectl-investigate"
-        INVESTIGATOR_NAMESPACE="${NAMESPACE}" INVESTIGATOR_RELEASE="${RELEASE_NAME}" \
-          kubectl investigate "How many nodes are in this cluster?" --model saturn-vllm --no-interactive
+        test "$(command -v kubectl-investigate)" = "${RUNNER_TEMP}/investigate-plugin/kubectl-investigate"
+        kubectl plugin list | grep -F "${RUNNER_TEMP}/investigate-plugin/kubectl-investigate"
+        export INVESTIGATOR_NAMESPACE="${NAMESPACE}" INVESTIGATOR_RELEASE="${RELEASE_NAME}" INVESTIGATOR_TIMING=1
+        timeout 15m kubectl investigate "How many nodes are in this cluster? Use read-only tools." \
+          --model saturn-vllm --no-interactive \
+          > "${RUNNER_TEMP}/investigation.stdout" 2> "${RUNNER_TEMP}/investigation.stderr"
+        test -s "${RUNNER_TEMP}/investigation.stdout"
+        grep -F '__AKSI_TIMING_EXEC_REQUEST__' "${RUNNER_TEMP}/investigation.stderr"
+        grep -F '__AKSI_TIMING_EXEC_STARTED__' "${RUNNER_TEMP}/investigation.stderr"
+        cat "${RUNNER_TEMP}/investigation.stdout"
 
     - name: Collect diagnostics
       if: failure() && steps.install.outcome != 'skipped'

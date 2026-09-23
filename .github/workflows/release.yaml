@@ -1,11 +1,12 @@
-name: Release AKS Investigator chart
+name: Release AKS Investigator chart and plugin
 
 # Show the release tag in the run title (Actions list), e.g.
-# "Release AKS Investigator chart 1.4.0".
-run-name: Release AKS Investigator chart ${{ github.ref_name }}
+# "Release AKS Investigator 1.4.0".
+run-name: Release AKS Investigator ${{ github.ref_name }}
 
-# Publish the AKSInvestigator Helm chart to the AKS ACR when an AKS Investigator
-# release is cut. Cutting a release = pushing a `X.Y.Z` git tag on `main` after
+# Publish the chart and per-platform plugin OCI artifacts to the source ACR,
+# then create the GitHub release and attach those exact plugin executables.
+# Cutting a release = pushing an unprefixed `X.Y.Z` tag on `main` after
 # the locally generated upstream sync branch (see docs/sync-holmesgpt.md) has
 # merged.
 #
@@ -23,8 +24,43 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: aks-investigator-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  release-metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+    - name: Validate release tag
+      id: version
+      env:
+        TAG: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        VERSION="${TAG}"
+        # Reject globs that are not SemVer. Build metadata (+...) cannot be an OCI tag.
+        if [[ ! "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ || ${#VERSION} -gt 110 ]]; then
+          echo '::error::Use X.Y.Z or X.Y.Z-prerelease without a v prefix; build metadata is not supported.'
+          exit 1
+        fi
+        if [[ "${VERSION}" == *-* ]]; then
+          IFS='.' read -r -a identifiers <<< "${VERSION#*-}"
+          for id in "${identifiers[@]}"; do
+            if [[ "${id}" =~ ^0[0-9]+$ ]]; then
+              echo '::error::Numeric prerelease identifiers cannot have leading zeros.'
+              exit 1
+            fi
+          done
+        fi
+        echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+  # E2E first builds and checks native Linux/Windows/macOS binaries, then runs
+  # the exact tested Linux artifact against the CPU and GPU chart deployments.
   e2e-test:
+    needs: release-metadata
     uses: ./.github/workflows/e2e-test.yaml
     secrets:
       AZURE_CONTAINER_REGISTRY_E2E: ${{ secrets.AZURE_CONTAINER_REGISTRY_E2E }}
@@ -32,7 +68,7 @@ jobs:
       AKS_CLUSTER_NAME_E2E: ${{ secrets.AKS_CLUSTER_NAME_E2E }}
 
   publish-chart:
-    needs: e2e-test
+    needs: [ release-metadata, e2e-test ]
     runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
     steps:
     - name: Checkout AKSInvestigator
@@ -43,10 +79,10 @@ jobs:
 
     - name: Resolve chart version and app version
       id: versions
+      env:
+        VERSION: ${{ needs.release-metadata.outputs.version }}
       run: |
         set -euo pipefail
-        # Chart version = release tag without the leading `v` (SemVer).
-        VERSION="${GITHUB_REF_NAME#v}"
         # App version = upstream HolmesGPT image tag from UPSTREAM_VERSION.
         if [[ ! -f UPSTREAM_VERSION ]]; then
           echo "::error::UPSTREAM_VERSION not found; run scripts/sync.sh first"
@@ -88,3 +124,154 @@ jobs:
           -d /tmp/chart
         helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" \
           "oci://${ACR}.azurecr.io/public/microsoft.aks.investigator"
+
+  publish-plugin:
+    needs: [ release-metadata, e2e-test, publish-chart ]
+    # Use the same managed-identity runner and source ACR as chart publication.
+    runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
+    timeout-minutes: 20
+    env:
+      ACR: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+      VERSION: ${{ needs.release-metadata.outputs.version }}
+      PLUGIN_REPO: public/microsoft.aks.investigator/kubectl-investigate
+      ARTIFACT_TYPE: application/vnd.microsoft.aks.investigator.kubectl-plugin.v1
+    steps:
+    - uses: oras-project/setup-oras@v1
+      with:
+        version: 1.2.2
+
+    - name: Prepare isolated publication directory
+      run: |
+        set -euo pipefail
+        echo "PLUGIN_WORK=$(mktemp -d "${RUNNER_TEMP}/plugin-release.XXXXXX")" >> "${GITHUB_ENV}"
+
+    - name: Download binaries tested by release E2E
+      uses: actions/download-artifact@v4
+      with:
+        pattern: kubectl-investigate-*
+        path: ${{ env.PLUGIN_WORK }}/artifacts
+
+    - name: Verify and name tested binaries
+      run: |
+        set -euo pipefail
+        mkdir "${PLUGIN_WORK}/dist"
+        declare -A seen=()
+        for artifact in "${PLUGIN_WORK}/artifacts/"kubectl-investigate-*; do
+          PLATFORM="$(basename "${artifact}")"
+          PLATFORM="${PLATFORM#kubectl-investigate-}"
+          case "${PLATFORM}" in
+            linux-amd64|darwin-amd64|darwin-arm64) SUFFIX= ;;
+            windows-amd64) SUFFIX=.exe ;;
+            *) echo "::error::Unsupported native target: ${PLATFORM}"; exit 1 ;;
+          esac
+          OS="${PLATFORM%-*}"
+          test -z "${seen[${OS}]:-}"
+          seen["${OS}"]=1
+          BINARY="kubectl-investigate${SUFFIX}"
+          test -f "${artifact}/${BINARY}" && test ! -L "${artifact}/${BINARY}"
+          HASH="$(sha256sum "${artifact}/${BINARY}" | cut -d ' ' -f 1)"
+          test "$(cat "${artifact}/SHA256SUMS")" = "${HASH}  ${BINARY}"
+          install -m 0755 "${artifact}/${BINARY}" \
+            "${PLUGIN_WORK}/dist/kubectl-investigate-${VERSION}-${PLATFORM}${SUFFIX}"
+        done
+        test "${#seen[@]}" -eq 3
+        # CI handoff only: this checksum file is not an OCI/GitHub release asset.
+        (cd "${PLUGIN_WORK}/dist" && sha256sum kubectl-investigate-* > SHA256SUMS)
+
+    - name: Log in to source ACR with managed identity
+      run: |
+        set -euo pipefail
+        # Keep registry credentials isolated from the persistent runner's config.
+        mkdir -m 700 "${PLUGIN_WORK}/docker"
+        export DOCKER_CONFIG="${PLUGIN_WORK}/docker"
+        echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >> "${GITHUB_ENV}"
+        az login --identity --output none
+        az acr login --name "${ACR}"
+
+    - name: Publish and verify platform OCI artifacts
+      run: |
+        set -euo pipefail
+        REGISTRY="$(az acr show --name "${ACR}" --query loginServer -o tsv)"
+        # A failed authorization/list call is an error, never treated as a missing tag.
+        # This check is not a registry lock; concurrent external writers need
+        # registry-enforced immutability.
+        az acr repository list --name "${ACR}" -o tsv > "${PLUGIN_WORK}/repositories"
+        : > "${PLUGIN_WORK}/tags"
+        if grep -Fxq "${PLUGIN_REPO}" "${PLUGIN_WORK}/repositories"; then
+          az acr repository show-tags --name "${ACR}" --repository "${PLUGIN_REPO}" -o tsv > "${PLUGIN_WORK}/tags"
+        fi
+        cd "${PLUGIN_WORK}/dist"
+        sha256sum --check SHA256SUMS
+        for BINARY in kubectl-investigate-*; do
+          TAG="${BINARY#kubectl-investigate-}"
+          TAG="${TAG%.exe}"
+          REF="${REGISTRY}/${PLUGIN_REPO}:${TAG}"
+          HASH="$(sha256sum "${BINARY}" | cut -d ' ' -f 1)"
+          if grep -Fxq "${TAG}" "${PLUGIN_WORK}/tags"; then
+            # Idempotent reruns may reuse the tag only for the same single binary.
+            oras manifest fetch --registry-config "${DOCKER_CONFIG}/config.json" "${REF}" > "${PLUGIN_WORK}/existing.json"
+            if ! jq -e --arg digest "sha256:${HASH}" --arg name "${BINARY}" --arg type "${ARTIFACT_TYPE}" \
+              '.artifactType == $type and (.layers | length) == 1 and .layers[0].digest == $digest and .layers[0].annotations["org.opencontainers.image.title"] == $name' \
+              "${PLUGIN_WORK}/existing.json" > /dev/null; then
+              echo "::error::Refusing to replace ${REF} with different content; create a new release version."
+              exit 1
+            fi
+            echo "Already published: ${REF}"
+          else
+            oras push --registry-config "${DOCKER_CONFIG}/config.json" "${REF}" \
+              --artifact-type "${ARTIFACT_TYPE}" "${BINARY}:application/octet-stream"
+          fi
+          DIGEST="$(oras manifest fetch --registry-config "${DOCKER_CONFIG}/config.json" --descriptor "${REF}" | jq -er .digest)"
+          # Check the actual executable served by ACR against the tested binary.
+          VERIFY="${PLUGIN_WORK}/verify-${TAG}"
+          oras pull --registry-config "${DOCKER_CONFIG}/config.json" "${REGISTRY}/${PLUGIN_REPO}@${DIGEST}" --output "${VERIFY}"
+          cmp "${BINARY}" "${VERIFY}/${BINARY}"
+          echo "- Published \`${REF}\` at \`${DIGEST}\`" >> "${GITHUB_STEP_SUMMARY}"
+        done
+        echo 'Source ACR verified; MCR ingestion/availability is not verified by this workflow.' >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Upload verified release assets
+      uses: actions/upload-artifact@v4
+      with:
+        name: plugin-release-assets
+        path: |
+          ${{ env.PLUGIN_WORK }}/dist/kubectl-investigate-*
+          ${{ env.PLUGIN_WORK }}/dist/SHA256SUMS
+        if-no-files-found: error
+        retention-days: 14
+
+    - name: Remove temporary publication files and credentials
+      if: always()
+      run: |
+        if [[ -n "${PLUGIN_WORK:-}" ]]; then rm -rf -- "${PLUGIN_WORK}"; fi
+
+  publish-github-release:
+    needs: publish-plugin
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: plugin-release-assets
+        path: dist
+
+    - name: Verify binaries before publication
+      run: |
+        set -euo pipefail
+        cd dist
+        sha256sum --check SHA256SUMS
+
+    - name: Attach plugin binaries to the tagged GitHub release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        if ! gh release view "${TAG}" >/dev/null 2>&1; then
+          flags=()
+          if [[ "${TAG}" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "${TAG}" --verify-tag --title "${TAG}" --generate-notes "${flags[@]}"
+        fi
+        gh release upload "${TAG}" dist/kubectl-investigate-* --clobber

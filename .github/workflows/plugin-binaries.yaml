@@ -1,0 +1,84 @@
+name: Build and check kubectl plugin binaries
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-binary:
+    name: Native plugin (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - runner: ubuntu-24.04
+          suffix: ""
+        - runner: windows-2022
+          suffix: .exe
+        - runner: macos-15
+          suffix: ""
+    # Untrusted PRs run only on disposable GitHub-hosted runners, without Azure secrets.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: kubectl-plugin
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        persist-credentials: false
+
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.x'
+        cache-dependency-path: kubectl-plugin/go.sum
+
+    - uses: azure/setup-kubectl@v4
+      with:
+        version: v1.34.1
+
+    - name: Check formatting and static analysis
+      run: |
+        set -euo pipefail
+        test -z "$(gofmt -l main.go exec_unix.go exec_windows.go tools/check-binary/main.go)"
+        go mod verify
+        go vet ./...
+
+    - name: Build native plugin
+      id: platform
+      env:
+        CGO_ENABLED: '0'
+      run: |
+        set -euo pipefail
+        echo "goos=$(go env GOOS)" >> "${GITHUB_OUTPUT}"
+        echo "goarch=$(go env GOARCH)" >> "${GITHUB_OUTPUT}"
+        go build -mod=readonly -trimpath -o "bin/host/kubectl-investigate${{ matrix.suffix }}" .
+
+    - name: Exercise compiled binary and real kubectl dispatch
+      run: |
+        set -euo pipefail
+        go run -mod=readonly ./tools/check-binary \
+          --binary "bin/host/kubectl-investigate${{ matrix.suffix }}" \
+          --kubectl kubectl
+
+    - name: Verify PowerShell can launch the Windows executable
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $output = & ./bin/host/kubectl-investigate.exe --help
+        if ($LASTEXITCODE -ne 0 -or "$output" -notmatch 'Usage:') {
+          throw 'Native plugin invocation from PowerShell failed'
+        }
+        exit 0
+
+    - name: Upload tested binary and checksum
+      uses: actions/upload-artifact@v4
+      with:
+        name: kubectl-investigate-${{ steps.platform.outputs.goos }}-${{ steps.platform.outputs.goarch }}
+        path: kubectl-plugin/bin/host/
+        if-no-files-found: error
+        retention-days: 14
