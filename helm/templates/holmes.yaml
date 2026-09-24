@@ -1,6 +1,6 @@
 {{- $tls := .Values.tls | default dict -}}
 {{- $saturn := .Values.saturn | default dict -}}
-{{- $saturnEnabled := and (empty .Values.modelList) (get $saturn "enabled") -}}
+{{- $saturnEnabled := get $saturn "enabled" -}}
 {{- if and $tls.enabled (not $tls.secretName) }}
 {{- fail "tls.enabled requires tls.secretName (a secret providing tls.crt and tls.key)" }}
 {{- end }}

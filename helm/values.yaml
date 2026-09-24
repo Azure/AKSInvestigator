@@ -233,12 +233,12 @@ modelList: {}
 # ---------------------------------------------------------------------------
 # Saturn vLLM model (AKSInvestigator add-on, not present in upstream HolmesGPT)
 # ---------------------------------------------------------------------------
-# Enabled by default for Arc extension and regular Helm installs. The Saturn
-# deployment is fully suppressed when modelList is non-empty, so HolmesGPT
-# uses the configured external models instead.
+# Enabled by default for Arc extension and regular Helm installs. Saturn runs
+# alongside any user-configured modelList entries when enabled.
+# Set saturn.enabled=false for external-model-only installations.
 saturn:
-  # Toggle the entire add-on. Even when true, the template ONLY renders if
-  # modelList is empty.
+  # Enable the deployment and generated model entry, independent of modelList.
+  # A modelList key matching servedModelName fails rendering while enabled.
   enabled: true
 
   # GPU vs CPU selection. Default CPU (false) needs a compatible CPU pool.
