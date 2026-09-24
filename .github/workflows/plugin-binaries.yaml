@@ -44,7 +44,14 @@ jobs:
     - name: Check formatting and static analysis
       run: |
         set -euo pipefail
-        test -z "$(gofmt -l main.go exec_unix.go exec_windows.go tools/check-binary/main.go)"
+        files=(main.go exec_unix.go exec_windows.go tools/check-binary/main.go)
+        unformatted="$(gofmt -l "${files[@]}")"
+        if [[ -n "${unformatted}" ]]; then
+          echo '::error::Go files are not gofmt-formatted (LF line endings required).'
+          printf '%s\n' "${unformatted}"
+          gofmt -d "${files[@]}"
+          exit 1
+        fi
         go mod verify
         go vet ./...
 
