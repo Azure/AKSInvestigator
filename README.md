@@ -10,7 +10,9 @@ so you can `helm install` and start diagnosing immediately, or bring your own
 model when you'd rather use an external provider.
 
 After installation, the bundled [`kubectl investigate`](kubectl-plugin/README.md)
-plugin provides a direct CLI for asking the in-cluster agent questions.
+plugin provides a native Linux/macOS/Windows CLI wrapper for asking the
+in-cluster agent questions. It needs no WSL, local Python, or local Bash;
+HolmesGPT still runs inside the cluster.
 
 ## What's added vs upstream
 
@@ -49,8 +51,11 @@ plugin provides a direct CLI for asking the in-cluster agent questions.
 
 ```
 AKSInvestigator/
-├── kubectl-plugin/              # kubectl investigate client
-│   ├── kubectl-investigate
+├── kubectl-plugin/             # shared native kubectl investigate client
+│   ├── go.mod
+│   ├── main.go
+│   ├── exec_unix.go
+│   ├── exec_windows.go
 │   └── README.md
 ├── helm/                       # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml
@@ -79,14 +84,14 @@ installing (see [publication details](#publish-the-saturn-model)).
 
 ```bash
 # CPU (default) — installs anywhere with AVX-512 (Standard_D*s_v5)
-helm install aksi ./helm -n aks-investigator --create-namespace
+helm install aks-investigator ./helm -n aks-investigator --create-namespace
 
 # GPU — requires an NVIDIA-equipped node pool
-helm install aksi ./helm -n aks-investigator --create-namespace \
+helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set saturn.gpu=true
 
 # Bring your own model (a non-empty modelList suppresses Saturn)
-helm install aksi ./helm -n aks-investigator --create-namespace \
+helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
@@ -99,11 +104,11 @@ upgrading an existing release with saved `modelSource: oci`, explicitly set
 
 ```bash
 # Optional: download the ModelPack OCI artifact with ORAS
-helm install aksi ./helm -n aks-investigator --create-namespace \
+helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set saturn.modelSource=oci
 
 # Optional: use the model image directly from a private source ACR
-helm install aksi ./helm -n aks-investigator --create-namespace \
+helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set 'saturn.modelImage.repository=<acr>.azurecr.io/public/microsoft.aks.investigator/saturn' \
   --set 'imagePullSecrets[0].name=acr-pull'
 ```
@@ -119,14 +124,84 @@ does not create node pools or change the CPU/GPU vLLM images.
 
 ## Install the kubectl plugin
 
+On Windows PowerShell, use the native `kubectl-investigate.exe`; see the
+[Windows installation instructions](kubectl-plugin/README.md#windows--powershell).
+For Linux/macOS, build from the repository root with **Go 1.23 or newer**
+(CI uses **1.24.x**). The shared module's `golang.org/x/term v0.34.0` and indirect
+`golang.org/x/sys` dependency require Go 1.23; a first build may download them.
+
 ```bash
-install -m 0755 kubectl-plugin/kubectl-investigate ~/.local/bin/kubectl-investigate
+go -C kubectl-plugin build -mod=readonly -trimpath -o bin/host/kubectl-investigate .
+mkdir -p ~/.local/bin
+install -m 0755 kubectl-plugin/bin/host/kubectl-investigate ~/.local/bin/kubectl-investigate
+export PATH="$HOME/.local/bin:$PATH"
+kubectl plugin list | grep investigate
 kubectl investigate "are any workloads unhealthy?"
 ```
 
-The plugin defaults to the `aksi` release in namespace `aks-investigator`. See the
+Keep the installation directory on `PATH` in future terminals. Alternatively,
+check the selected [GitHub Release](https://github.com/Azure/AKSInvestigator/releases)
+for **kubectl-investigate-\<version\>-\<goos\>-\<goarch\>** (with **.exe** on
+Windows). Download the raw executable, rename it to **kubectl-investigate**
+(Linux/macOS) or **kubectl-investigate.exe** (Windows), and place it on `PATH`;
+on Linux/macOS, set executable permission with `chmod +x`. See the
+[release binary instructions](kubectl-plugin/README.md#release-binaries-when-published).
+No extraction is needed, and no checksum or metadata files are published.
+This does not assert that a binary is already available. Downloaded binaries
+need no Go installation at runtime. Releases publish only native-checked
+`linux/amd64`, `windows/amd64`, and the macOS runner's actual `go env`
+architecture (usually `darwin/arm64`; `darwin/amd64` is also accepted by the
+release workflow). Other architectures can be built manually, not assumed released.
+
+The plugin defaults to the `aks-investigator` release in namespace `aks-investigator`
+and falls back to a single Holmes deployment if that name is absent. See the
 [plugin documentation](kubectl-plugin/README.md) for custom release and
-namespace settings.
+namespace settings, manual cross-builds, and executable checks. Timing mode
+requires Bash only inside the Holmes container, not on the client.
+
+### Per-release plugin publication
+
+The [release workflow](.github/workflows/release.yaml) validates pushed
+unprefixed `X.Y.Z` tags (prereleases allowed; `v` prefixes and `+buildmetadata`
+are not supported), then runs native binary checks and CPU/GPU E2E. After
+publishing the chart to source ACR, it checksum-verifies and renames the tested
+executables **without rebuilding**, publishes and verifies one OCI artifact
+per native platform, then uploads only those versioned raw binaries to the
+matching GitHub release, replacing same-named assets on reruns (`--clobber`).
+A missing GitHub release is created with `--verify-tag` and generated notes;
+new prereleases are marked as such. GitHub, chart, and OCI versions use the
+same unprefixed release version; no `latest` registry tag is published.
+
+| Location | Plugin artifact reference |
+| --- | --- |
+| Source ACR | `<acr>.azurecr.io/public/microsoft.aks.investigator/kubectl-investigate:<version>-<goos>-<goarch>` |
+| Expected MCR | `mcr.microsoft.com/microsoft.aks.investigator/kubectl-investigate:<version>-<goos>-<goarch>` |
+
+For example, the source ACR reference
+`<acr>.azurecr.io/public/microsoft.aks.investigator/kubectl-investigate:0.1.0-linux-amd64`
+contains **kubectl-investigate-0.1.0-linux-amd64**, also the GitHub asset name.
+The Windows tag is `0.1.0-windows-amd64` (no `.exe` in the tag), containing
+**kubectl-investigate-0.1.0-windows-amd64.exe**. These are illustrative names,
+not evidence that version `0.1.0` is published.
+
+Source publication uses the chart's `AZURE_CONTAINER_REGISTRY` secret and
+managed-identity self-hosted 1ES runner. The artifact type is
+`application/vnd.microsoft.aks.investigator.kubectl-plugin.v1`: it carries
+one raw binary layer (`application/octet-stream`), **not a runnable container
+image**. No archive, checksum, license, or inventory payload is published.
+**SHA256SUMS** is internal to Actions handoffs for E2E and release publication.
+An existing source tag is reused only when its artifact type, single-layer
+binary digest, and filename match; different content fails. The workflow
+pulls by manifest digest and compares the served binary bytes before GitHub
+upload. This verification is not registry-enforced immutability or a global
+lock against external publishers.
+
+The workflow verifies source ACR, **not MCR onboarding or availability**. MCR
+needs an appropriate ingestion policy and completed propagation. See the
+[release flow](kubectl-plugin/README.md#executable-checks-and-release-flow)
+and [optional registry download guidance](kubectl-plugin/README.md#optional-download-from-an-oci-registry)
+for permissions, digest-based pulls, and installation. These are workflow
+capabilities, not claims that a specific plugin version has been published.
 
 ## Saturn model configuration
 

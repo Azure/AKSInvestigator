@@ -1,9 +1,12 @@
 # AKSInvestigator
 
 AKS-flavored fork of the [HolmesGPT](https://github.com/HolmesGPT/holmesgpt)
-Helm chart. This repo contains **Helm/deployment and model packaging**, not the
-HolmesGPT runtime application source. HolmesGPT itself lives upstream; this
-repo packages and deploys it for AKS with AKS-specific add-ons layered on top.
+Helm chart. This repo contains **Helm/deployment, model packaging, and a native
+kubectl CLI wrapper**, not the HolmesGPT runtime application source. HolmesGPT
+itself lives upstream; this repo packages and deploys it for AKS with
+AKS-specific add-ons layered on top. The
+[kubectl plugin](kubectl-plugin/README.md) invokes Holmes inside the cluster;
+it is not a local HolmesGPT runtime.
 The [model-image Dockerfile](docker/saturn-model/Dockerfile) is build packaging
 for model files and copy tools, not a new runtime application.
 
@@ -132,10 +135,102 @@ requires updating `gpuImage.tag`/`cpuImage.tag` in the integration patch and
 regenerating `values.yaml` with `scripts/sync.sh`. Also bump `FLOOR_TAG` in the
 workflow.
 
+## Native kubectl plugin
+
+Linux, macOS, and Windows share [kubectl-plugin/go.mod](kubectl-plugin/go.mod),
+[kubectl-plugin/main.go](kubectl-plugin/main.go),
+[kubectl-plugin/exec_unix.go](kubectl-plugin/exec_unix.go),
+and [kubectl-plugin/exec_windows.go](kubectl-plugin/exec_windows.go). The old Linux/macOS Bash
+script and separate Windows module have been replaced. Build from the shared
+module, not a Windows subdirectory. `golang.org/x/term v0.34.0` and indirect
+`golang.org/x/sys v0.35.0` require Go 1.23 or newer; CI uses **1.24.x**.
+The native plugin needs no WSL, local Python, or local Bash. Only timing mode
+requires Bash inside the Holmes container.
+
+The reusable [binary workflow](.github/workflows/plugin-binaries.yaml) is
+called by the existing [E2E PR check-in](.github/workflows/e2e-test.yaml).
+It checks compiled executables on hosted `ubuntu-24.04` (`linux/amd64`),
+`windows-2022` (`windows/amd64`), and `macos-15` (native architecture from
+`go env`, typically `darwin/arm64`), without Azure secrets. Fork/Dependabot PRs
+run these checks but skip Azure jobs. The
+[check driver](kubectl-plugin/tools/check-binary/main.go) uses a recording
+kubectl fixture plus real kubectl discovery/dispatch without cluster/network
+access or secrets; Windows also has a PowerShell smoke check. No unit-test
+suite was added.
+
+CPU/GPU live E2E checksum-verifies and uses the exact tested Linux artifact.
+The [release workflow](.github/workflows/release.yaml) supports only unprefixed
+`X.Y.Z` tags, allowing SemVer prereleases but rejecting `v` prefixes and
+`+buildmetadata`. GitHub, chart, and OCI versions use that same release version.
+The sequence is validated tag → native checks → CPU/GPU E2E → chart source ACR
+publication → raw plugin source ACR publication/verification → GitHub assets.
+
+Native build artifacts contain only the tested executable and internal
+**SHA256SUMS**, not a license. There is no separate packaging-check job.
+Publication checksum-verifies the downloaded native artifacts and renames the
+same tested binaries **without rebuilding**. Exactly three native artifacts,
+one per OS, are required:
+`linux/amd64`, `windows/amd64`, and the macOS runner's actual `go env` target,
+usually `darwin/arm64` (`darwin/amd64` is accepted for runner changes). Do not
+claim that all six manual cross-build targets are released.
+
+Plugin publication uses the same `AZURE_CONTAINER_REGISTRY` secret and
+managed-identity self-hosted `1ES.Pool=1es-aks-investigator-pool-ubuntu` runner
+as chart publication, with registry listing/push/pull permissions:
+
+- Source: `<acr>.azurecr.io/public/microsoft.aks.investigator/kubectl-investigate:<version>-<goos>-<goarch>`.
+- Expected MCR: `mcr.microsoft.com/microsoft.aks.investigator/kubectl-investigate:<version>-<goos>-<goarch>`.
+- Artifact type: `application/vnd.microsoft.aks.investigator.kubectl-plugin.v1`.
+  Direct `oras push --registry-config` publishes a single raw binary layer
+  (`application/octet-stream`), not a runnable container image. No archive,
+  checksum, license, or inventory payload is published. **SHA256SUMS** remains
+  internal to Actions handoffs for E2E and release publication.
+- Existing source tags are reused only when the artifact type, single-layer
+  binary digest, and filename match; different content fails. The preflight
+  check and post-publish verification are **not a global lock** or
+  registry-enforced immutability. Concurrency is keyed by the release tag and
+  does not lock out external publishers. No `latest` registry tag is published.
+- The workflow pulls source ACR artifacts by manifest digest and compares
+  the served binary bytes with the tested executables, then
+  creates a missing GitHub release with `--verify-tag` and `--generate-notes`,
+  marking newly created prereleases. It uploads only the same versioned raw
+  **kubectl-investigate-\<version\>-\<goos\>-\<goarch\>** binaries (with **.exe**
+  on Windows), replacing same-named GitHub assets on reruns (`--clobber`).
+
+For example, source ACR
+`<acr>.azurecr.io/public/microsoft.aks.investigator/kubectl-investigate:0.1.0-linux-amd64`
+contains **kubectl-investigate-0.1.0-linux-amd64**, also the GitHub asset name.
+The Windows tag `0.1.0-windows-amd64` contains
+**kubectl-investigate-0.1.0-windows-amd64.exe**; `.exe` is not part of the tag.
+Installation requires no extraction: rename to **kubectl-investigate** or
+**kubectl-investigate.exe**, put it on `PATH`, and use `chmod +x` on Linux/macOS.
+ORAS pulls may not preserve executable permission.
+
+MCR requires repository onboarding, compatible ingestion policy, and completed
+propagation; the workflow does **not** verify MCR. Source publication code is
+not evidence of a successful release. Verify actual assets before recommending
+a download; plugin version `0.1.0` in examples is illustrative only. See the
+[plugin installation guide](kubectl-plugin/README.md) for source builds,
+registry authentication/pull permissions, raw binary installation, and
+manual cross-builds, including Windows ARM64.
+
+The [benchmark collector](scripts/performance_benchmark.py) remains Linux/macOS
+only. It requires Go on `PATH`, builds this checkout's plugin once per benchmark
+invocation before cluster access/timing, puts its private output binary's
+directory first on `PATH`, and records `plugin_binary`, `plugin_sha256`, and a build log.
+Dependencies may need downloading. The local Braintrust SDK remains mandatory,
+including with `--no-braintrust`; see [CPU performance](docs/cpu-performance.md).
+
 ## Layout
 
 ```
 AKSInvestigator/
+├── kubectl-plugin/            # shared native CLI wrapper, not Holmes runtime
+│   ├── go.mod
+│   ├── main.go
+│   ├── exec_unix.go
+│   ├── exec_windows.go
+│   └── README.md
 ├── helm/                      # synced from holmesgpt/helm/holmes
 │   ├── Chart.yaml             # name: holmes; version placeholder 0.0.1
 │   ├── values.yaml            # synced upstream values; image tag pinned by sync
@@ -154,14 +249,14 @@ AKSInvestigator/
 
 ```bash
 # CPU (default) — needs AVX-512 (Standard_D*s_v5)
-helm install aksi ./helm -n aks-investigator --create-namespace
+helm install aks-investigator ./helm -n aks-investigator --create-namespace
 
 # GPU — requires an NVIDIA node pool
-helm install aksi ./helm -n aks-investigator --create-namespace \
+helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set saturn.gpu=true
 
 # Bring your own model (a non-empty modelList suppresses Saturn)
-helm install aksi ./helm -n aks-investigator --create-namespace \
+helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
@@ -174,7 +269,8 @@ its in-cluster endpoint to HolmesGPT's model list. The generated
 - **Prefer editing the upstream chart upstream**, then `./scripts/sync.sh`.
   Change AKS-specific Saturn defaults in `patches/saturn-integration.patch`, not
   directly in `values.yaml`, because sync regenerates that file.
-- New AKS-only files must be added to `KEEP_FILES` in `scripts/sync.sh`.
+- New AKS-only chart files must be added to `KEEP_FILES` in `scripts/sync.sh`;
+  the native CLI sources are outside chart syncing.
 - Validate template changes with `helm template ./helm`
   and `helm lint ./helm` before committing.
 - Commits use semantic PR title format: `<type>(<scope>): <description>`

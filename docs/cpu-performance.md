@@ -4,8 +4,11 @@
 
 From the repository root on Linux/macOS, with CPU release `aksi-cpu` ready in
 `aks-investigator-cpu` and `BRAINTRUST_API_KEY` / `BRAINTRUST_ORG` exported in
-this shell. Holmes inside the pod must also have the Braintrust SDK installed
-to produce traces. Replace `<context-name>` with your kubeconfig context:
+this shell. **Go 1.23 or newer must be on `PATH`**: each benchmark invocation
+builds the checkout's native plugin before cluster access or timing, and may
+need network access to download Go dependencies. Holmes inside the pod must
+also have the Braintrust SDK installed to produce traces. Replace
+`<context-name>` with your kubeconfig context:
 
 ```bash
 python3 -m venv .venv
@@ -25,8 +28,14 @@ Credentials are passed as exec arguments; see the security notes below.
 Measure one-shot `kubectl investigate` commands against an **existing CPU
 Saturn deployment**, using [../scripts/performance_benchmark.py](../scripts/performance_benchmark.py).
 The benchmark runner supports Linux/macOS, not native Windows. It invokes the
-Bash plugin from this checkout through real `kubectl` plugin discovery rather
-than relying on a possibly older installed copy.
+native Go plugin from this checkout through real `kubectl` plugin discovery
+rather than relying on a possibly older installed copy. It builds once per
+benchmark invocation, before any cluster access or command timing, and reuses
+that binary for all requested runs. It stores the native executable in a
+private .plugin-bin directory under the output directory and puts that
+directory first on the child process's `PATH`. The summary records
+`plugin_binary` and `plugin_sha256`, and the output retains the build log.
+Building is outside measured wall time.
 
 **The standard benchmark requires Braintrust tracing and SDK collection by
 default.** Pass `--trace braintrust` after the question and supply both
@@ -41,9 +50,9 @@ One file provides two modes: benchmarking uses the same flags with **no
 subcommand**, while `analyze-braintrust` performs analysis only on an existing
 trace selected by `--url` or a captured log selected by `--log`. Analysis-only
 mode does not access the cluster or require a kubeconfig; it reads Braintrust
-using the inherited local credentials. Top-level `--help` shows benchmark
-options and an epilog describing the subcommand; `analyze-braintrust --help`
-shows analysis-only options.
+using the inherited local credentials. It does not build the plugin or require
+Go. Top-level `--help` shows benchmark options and an epilog describing the
+subcommand; `analyze-braintrust --help` shows analysis-only options.
 
 The benchmark collector itself does not install or upgrade releases, change
 deployment settings, restart pods, or clear caches. It performs discovery and
@@ -58,7 +67,14 @@ These instructions do not target GPU deployments.
 
 Benchmark prerequisites (cluster requirements do not apply to analysis-only mode):
 
-- Python 3 with `venv` and `pip`, Bash, and `kubectl` on the local `PATH`.
+- Python 3 with `venv` and `pip`, `kubectl`, and Go **1.23 or newer** on the local
+  `PATH`. CI uses Go **1.24.x**. The shared
+  [plugin module](../kubectl-plugin/go.mod) uses `golang.org/x/term v0.34.0`
+  and indirect `golang.org/x/sys v0.35.0`, which require Go 1.23; uncached
+  dependencies may need network access during the build.
+- Bash inside the Holmes container for timing markers, not on the client.
+  The plugin itself needs no local Python or Bash; this separate collector
+  still requires local Python and its SDK dependencies.
 - An existing kubeconfig context for the cluster hosting the CPU deployment.
 - CPU namespace `aks-investigator-cpu`, release `aksi-cpu` (Holmes deployment
   `aksi-cpu-holmes`), and model `saturn-vllm` already available.
@@ -129,7 +145,7 @@ read -r -p 'Authorized Braintrust organization: ' BRAINTRUST_ORG
 export BRAINTRUST_API_KEY BRAINTRUST_ORG
 ```
 
-The Bash plugin passes the two local values as separate quoted `NAME=value`
+The native plugin passes the two local values as separate literal `NAME=value`
 arguments to `kubectl exec ... -- env`, setting them only for the new Holmes
 CLI process and its children. Values are not evaluated as remote shell code.
 There is no stdin credential preamble or persistent pod configuration change.
@@ -291,7 +307,7 @@ their overhead were identical.
 ## CPU resource sweep
 
 [../scripts/sweep_cpu.py](../scripts/sweep_cpu.py) runs the explicitly approved
-untraced, timing/vLLM-only sweep at **6, 7, 8, 9, 10, and 12 CPU**, sequentially,
+untraced, timing/vLLM-only sweep at **6, 7, 8, 9, 10, 11, and 12 CPU**, sequentially,
 with Saturn's CPU **request equal to its limit** at each level. Defaults are
 namespace `aks-investigator-cpu` and release `aksi-cpu`; no GPU release is
 targeted. Unlike the collector, this wrapper **mutates the CPU Helm release**:
@@ -300,11 +316,14 @@ Saturn and Holmes to their respective original nodes, and attempts restoration.
 Obtain permission for upgrades, pod replacement, and rollback before running.
 
 Use an idle, deployed, single-replica CPU release, a matching local chart,
-`helm` and `kubectl` on `PATH`, and the existing repository virtual environment
-with the benchmark dependencies above. Additional access is needed to inspect
-ReplicaSets, read Saturn startup logs/cgroup files via exec, and manage the
-Helm release. The sweep performs **no SDK installation or Braintrust tracing,
-upload, or collection**; its child collector still imports the installed SDK.
+`helm`, `kubectl`, and Go 1.23 or newer on `PATH`, and the existing repository
+virtual environment with the benchmark dependencies above. Additional access
+is needed to inspect ReplicaSets, read Saturn startup logs/cgroup files via
+exec, and manage the Helm release. The sweep performs **no SDK installation or
+Braintrust tracing, upload, or collection**; its child collector still imports
+the installed SDK.
+Each child collector builds the checkout's plugin once for that level before
+its measurements; dependency downloads may require network access.
 From the repository root:
 
 ```bash
@@ -312,7 +331,7 @@ From the repository root:
 python scripts/sweep_cpu.py --context '<context-name>'
 ```
 
-Optionally append `--levels 6 7 8 9 10 12` to state the defaults explicitly;
+Optionally append `--levels 6 7 8 9 10 11 12` to state the defaults explicitly;
 only distinct levels from that set are accepted. `--namespace` and `--release`
 can select another approved CPU release. The default question asks for the
 cluster's node count using read-only tools and a one-sentence answer.
@@ -333,6 +352,8 @@ cluster's node count using read-only tools and a one-sentence answer.
   A stable question can produce different answers, tool calls, and output-token
   counts; compare request/prompt/generation counts alongside timing. vLLM deltas
   cover all pod traffic, so keep other callers idle.
+  `generation_tokens_per_wall_second` divides generated tokens by total command
+  wall time, including tool and client overhead; it is not isolated decode speed.
 - **Cgroups:** before/after `cpu.stat` captures usage, throttled time, and period
   deltas. `throttle_ratio` is `delta(nr_throttled) / delta(nr_periods)`, **not a
   wall-time percentage**. `working_gib` estimates post-run
@@ -378,6 +399,9 @@ A typical output directory contains:
 ```text
 benchmark-results/cpu-<UTC timestamp>/
   summary.json
+  plugin-build.log
+  .plugin-bin/
+    kubectl-investigate
   run-01/
     stdout.log
     stderr.log
@@ -389,7 +413,10 @@ benchmark-results/cpu-<UTC timestamp>/
 
 The collector's root summary records context, CPU image/resources,
 pod/container identities, each run's timing and metric validity, and Braintrust
-status. `braintrust_enabled` and `braintrust_required` are both `true` by
+status. `plugin_binary` identifies the private executable built for this
+invocation, and `plugin_sha256` records its SHA-256. The build log captures
+compiler/dependency output; build failure stops before cluster access or timing.
+`braintrust_enabled` and `braintrust_required` are both `true` by
 default, or both `false` with `--no-braintrust` (analysis status `disabled`).
 
 `runs[].collection_complete` is `true` only when **all** of these hold:
@@ -432,7 +459,7 @@ not subtract clocks from different machines.
 
 | Field under `runs[].timing` | Meaning and limits |
 | --- | --- |
-| `wall_seconds` | Local command launch-to-exit duration: an upper bound on time to the result for a successful command, not a separately detected first-answer or first-token latency. Excludes collector preflights, metrics scrapes, and post-run SDK fetching. |
+| `wall_seconds` | Local command launch-to-exit duration: an upper bound on time to the result for a successful command, not a separately detected first-answer or first-token latency. Excludes the plugin build, collector preflights, metrics scrapes, and post-run SDK fetching. |
 | `client_before_exec_seconds` | Launch to receipt of the local exec-request marker. Includes `kubectl` plugin discovery/dispatch, plugin startup, and deployment discovery before exec. |
 | `exec_startup_observed_seconds` | Local exec-request marker receipt to remote-shell marker receipt. Includes local scheduling, authentication, Kubernetes API/exec handshake, remote shell startup, and return network/stdio I/O. This is **not image boot or pod startup time**. |
 | `remote_to_exit_seconds` | Remote-shell marker receipt to local exit. Includes Python startup/imports, tool initialization, agent/model/tool work, tracing when enabled, and I/O/stream teardown. It does **not isolate imports** or pure model execution. |

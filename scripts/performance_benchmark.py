@@ -3,6 +3,7 @@
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 import os
@@ -571,7 +572,7 @@ def benchmark_main(argv=None):
         prog="performance_benchmark.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Measure the installed kubectl investigate plugin "
+            "Build and measure the checkout's kubectl investigate binary "
             "against CPU Saturn with Braintrust collection by default."
         ),
         epilog=(
@@ -636,6 +637,9 @@ def benchmark_main(argv=None):
     kubectl = shutil.which("kubectl")
     if not kubectl:
         parser.error("kubectl must be on PATH")
+    go = shutil.which("go")
+    if not go:
+        parser.error("Go must be on PATH to build the checkout's plugin")
     if options.output is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         options.output = (
@@ -644,6 +648,25 @@ def benchmark_main(argv=None):
         )
     options.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     print(f"Benchmark output: {options.output.resolve()}", flush=True)
+    # Compile before measurement and cluster activity. Use a private
+    # per-run binary directory so PATH cannot select a stale installed script.
+    plugin_dir = options.output.resolve() / ".plugin-bin"
+    plugin_dir.mkdir(mode=0o700)
+    plugin_binary = plugin_dir / "kubectl-investigate"
+    build_env = os.environ.copy()
+    build_env.pop("GOOS", None)
+    build_env.pop("GOARCH", None)
+    build_env.update(CGO_ENABLED="0", GOWORK="off")
+    with (options.output / "plugin-build.log").open("w") as build_log:
+        built = subprocess.run(
+            [go, "build", "-mod=readonly", "-trimpath", "-o",
+             str(plugin_binary), "."],
+            cwd=Path(__file__).resolve().parents[1] / "kubectl-plugin",
+            env=build_env, stdout=build_log, stderr=build_log, timeout=300,
+        )
+    if built.returncode != 0:
+        raise RuntimeError("Plugin build failed; see plugin-build.log")
+    plugin_sha256 = hashlib.sha256(plugin_binary.read_bytes()).hexdigest()
     base = [
         kubectl, "--context", options.context, "--request-timeout=30s",
         "-n", options.namespace,
@@ -712,9 +735,7 @@ def benchmark_main(argv=None):
         INVESTIGATOR_TIMING="1",
         INVESTIGATOR_HOME="/tmp",
     )
-    # Ensure the measured plugin is the instrumented checkout, not an old
-    # installed copy. kubectl still performs actual plugin dispatch.
-    plugin_dir = Path(__file__).resolve().parents[1] / "kubectl-plugin"
+    # kubectl still performs actual plugin dispatch through PATH.
     env["PATH"] = str(plugin_dir) + os.pathsep + env.get("PATH", "")
     # Ignore inherited targeting and remote HOME overrides.
     env.pop("INVESTIGATOR_DEPLOY", None)
@@ -747,6 +768,8 @@ def benchmark_main(argv=None):
             "saturn": pod_identity(pod, "vllm"),
             "holmes": pod_identity(holmes_pod, "holmes"),
             "remote_home": "/tmp",
+            "plugin_binary": str(plugin_binary),
+            "plugin_sha256": plugin_sha256,
             "resources": container.get("resources", {}), "runs": [],
             "braintrust_enabled": traced,
             "braintrust_required": traced,

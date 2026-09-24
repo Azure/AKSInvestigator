@@ -6,6 +6,13 @@ helm/charts/
 # Local performance reports, logs, metrics and temporary kubeconfigs
 /benchmark-results/
 
+# Locally built kubectl plugin binaries (including old Windows build paths)
+/kubectl-plugin/bin/
+/kubectl-plugin/kubectl-investigate
+/kubectl-plugin/kubectl-investigate.exe
+/kubectl-plugin/windows/bin/
+/kubectl-plugin/windows/*.exe
+
 # Python / editors
 __pycache__/
 *.pyc
