@@ -1,10 +1,8 @@
 {{/*
 Saturn vLLM model deployment.
 
-Renders ONLY when:
-  - .Values.modelList is empty (i.e. the user has not pointed HolmesGPT
-    at an external model catalog), AND
-  - .Values.saturn.enabled is true (default true in values.yaml).
+Renders when .Values.saturn.enabled is true (default true in values.yaml),
+independently of .Values.modelList. User-configured models may coexist.
 
 The GPU vs CPU variant is selected by .Values.saturn.gpu (default: false).
 Model files come from an init container image (modelSource=image, default)
@@ -17,7 +15,6 @@ in-cluster service DNS is:
 Reference: see /home/azureuser/llm/holmesgpt/deploy/models/README.md
 for the original standalone manifests this template is derived from.
 */}}
-{{- if empty .Values.modelList -}}
 {{- with .Values.saturn -}}
 {{- if .enabled -}}
 {{- $gpu := .gpu | default false -}}
@@ -263,6 +260,5 @@ spec:
       port: 8000
       targetPort: 8000
       protocol: TCP
-{{- end }}
 {{- end }}
 {{- end }}

@@ -9,12 +9,12 @@ diff --git a/helm/values.yaml b/helm/values.yaml
 +# ---------------------------------------------------------------------------
 +# Saturn vLLM model (AKSInvestigator add-on, not present in upstream HolmesGPT)
 +# ---------------------------------------------------------------------------
-+# Enabled by default for Arc extension and regular Helm installs. The Saturn
-+# deployment is fully suppressed when modelList is non-empty, so HolmesGPT
-+# uses the configured external models instead.
++# Enabled by default for Arc extension and regular Helm installs. Saturn runs
++# alongside any user-configured modelList entries when enabled.
++# Set saturn.enabled=false for external-model-only installations.
 +saturn:
-+  # Toggle the entire add-on. Even when true, the template ONLY renders if
-+  # modelList is empty.
++  # Enable the deployment and generated model entry, independent of modelList.
++  # A modelList key matching servedModelName fails rendering while enabled.
 +  enabled: true
 +
 +  # GPU vs CPU selection. Default CPU (false) needs a compatible CPU pool.
@@ -127,7 +127,7 @@ diff --git a/helm/templates/holmes.yaml b/helm/templates/holmes.yaml
 @@ -1,4 +1,6 @@
  {{- $tls := .Values.tls | default dict -}}
 +{{- $saturn := .Values.saturn | default dict -}}
-+{{- $saturnEnabled := and (empty .Values.modelList) (get $saturn "enabled") -}}
++{{- $saturnEnabled := get $saturn "enabled" -}}
  {{- if and $tls.enabled (not $tls.secretName) }}
  {{- fail "tls.enabled requires tls.secretName (a secret providing tls.crt and tls.key)" }}
  {{- end }}
@@ -156,24 +156,27 @@ diff --git a/helm/templates/toolset-config.yaml b/helm/templates/toolset-config.
 @@ -1,4 +1,6 @@
 -{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 +{{- $saturn := .Values.saturn | default dict -}}
-+{{- $saturnEnabled := and (empty .Values.modelList) (get $saturn "enabled") -}}
++{{- $saturnEnabled := get $saturn "enabled" -}}
 +{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled $saturnEnabled }}
  apiVersion: v1
  kind: ConfigMap
  metadata:
-@@ -239,7 +241,21 @@ data:
+@@ -239,7 +241,24 @@ data:
        plain scalars in `key: value` form, so this anchor covers every
        real-world usage.
      */ -}}
 -    {{- $rendered := .Values.modelList | toYaml -}}
-+    {{- $models := .Values.modelList -}}
++    {{- $models := deepCopy (.Values.modelList | default dict) -}}
 +    {{- if $saturnEnabled -}}
 +    {{- $gpu := get $saturn "gpu" | default false -}}
 +    {{- $defaultMaxModelLen := ternary 262144 65536 $gpu -}}
 +    {{- $variantMaxModelLen := ternary (get $saturn "gpuMaxModelLen") (get $saturn "cpuMaxModelLen") $gpu -}}
 +    {{- $maxModelLen := get $saturn "maxModelLen" | default $variantMaxModelLen | default $defaultMaxModelLen -}}
 +    {{- $servedName := get $saturn "servedModelName" | default "saturn-vllm" -}}
-+    {{- $models = dict $servedName (dict
++    {{- if hasKey $models $servedName -}}
++    {{- fail (printf "modelList key %q conflicts with the enabled Saturn model; rename the entry or change saturn.servedModelName" $servedName) -}}
++    {{- end -}}
++    {{- $_ := set $models $servedName (dict
 +          "api_base" (printf "http://saturn-vllm.%s.svc.cluster.local:8000/v1" .Release.Namespace)
 +          "api_key" "dummy"
 +          "model" (printf "openai/%s" $servedName)

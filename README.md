@@ -18,7 +18,7 @@ HolmesGPT still runs inside the cluster.
 
 - **In-cluster Saturn vLLM model** ([template](helm/templates/saturn/saturn-vllm.yaml),
   defaults in [helm/values.yaml](helm/values.yaml)).
-  When you `helm install` and `modelList` is empty, an init container prepares
+  When `saturn.enabled=true` (default), an init container prepares
   `saturn-ms/saturn-0202` in pod-local storage: by default it copies files from
   the model-only container image; optional OCI mode pulls the ModelPack
   artifact with ORAS. vLLM then serves that local model through an
@@ -40,9 +40,8 @@ HolmesGPT still runs inside the cluster.
   request / 48 GiB limit. These are conservative budgets, not measured BF16
   usage; `auto` does not shrink the cache allocation or Kubernetes resources.
 
-  As soon as `modelList` is non-empty, the Saturn deployment is fully
-  suppressed (HolmesGPT uses your external models instead). Set
-  `saturn.enabled=false` to disable Saturn without configuring another model.
+  Saturn can run alongside user-configured `modelList` entries. Set
+  `saturn.enabled=false` for an external-model-only installation.
 
   See the original standalone manifests this template is derived from at
   `~/llm/holmesgpt/deploy/models/` for the rationale behind each flag.
@@ -90,8 +89,9 @@ helm install aks-investigator ./helm -n aks-investigator --create-namespace
 helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set saturn.gpu=true
 
-# Bring your own model (a non-empty modelList suppresses Saturn)
+# Bring your own model only (disable Saturn explicitly)
 helm install aks-investigator ./helm -n aks-investigator --create-namespace \
+  --set saturn.enabled=false \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
@@ -205,8 +205,9 @@ capabilities, not claims that a specific plugin version has been published.
 
 ## Saturn model configuration
 
-When Saturn is enabled and `modelList` is empty, the chart automatically adds
-the following entry to HolmesGPT's model catalog. The namespace and
+When `saturn.enabled=true`, the chart automatically adds the following entry
+to HolmesGPT's model catalog alongside any user-configured `modelList` entries.
+The namespace and
 `max_context_size` are generated from the Helm release and selected runtime:
 
 ```yaml
@@ -217,6 +218,63 @@ saturn-vllm:
   custom_args:
     max_context_size: 65536 # CPU default; GPU default is 262144
 ```
+
+### Use Saturn and Azure OpenAI together
+
+Add these overrides to your deployment values. Keep the Azure API key in an
+existing Kubernetes Secret named `azure-openai-credentials` in the **release
+namespace**, with a key named `AZURE_API_KEY`; do not put its value in Helm
+values or source control.
+
+```yaml
+saturn:
+  enabled: true
+  gpu: false # Set true to use the existing NVIDIA node pool instead
+
+extraEnvVarsSecrets:
+  - azure-openai-credentials
+
+modelList:
+  azure-openai:
+    model: azure/<deployment-name>
+    api_base: https://<resource-name>.openai.azure.com/
+    api_version: "<supported-api-version>"
+    api_key: envRef:AZURE_API_KEY
+```
+
+Use your Azure OpenAI **deployment name** and a supported API version. Keep any
+other existing model entries, secret references, and scheduling overrides when
+applying these values. After installing/upgrading the chart, choose a catalog
+entry with the plugin:
+
+```bash
+kubectl investigate "how many pods are in the cluster" --model saturn-vllm
+kubectl investigate "how many pods are in the cluster" --model azure-openai
+```
+
+Both entries remain available; this does not run both models for each question
+or configure automatic fallback. Selecting Azure OpenAI sends investigation
+prompts and tool results to that service. Ensure that is allowed for your data.
+The existing Holmes `OVERRIDE_MAX_OUTPUT_TOKEN=20000` setting still applies when
+Saturn is active; it is a process-wide setting, not a per-model override.
+
+| `saturn.enabled` | `modelList` | Result |
+| --- | --- | --- |
+| `true` (default) | Empty | Saturn only |
+| `true` | Non-empty | Saturn plus user models |
+| `false` | Any | User entries only; no Saturn pod or generated entry |
+
+Do not manually add the generated Saturn entry to `modelList`. If a user entry
+has the same key as `saturn.servedModelName` (default `saturn-vllm`) while Saturn
+is active, rendering fails. Rename that entry or choose a different
+`saturn.servedModelName`. Coexistence uses the normal Saturn CPU/GPU resource budgets.
+
+**Upgrade note:** a non-empty `modelList` previously suppressed Saturn even
+when `saturn.enabled=true`. It no longer does. For existing external-model-only
+releases, explicitly set `saturn.enabled=false` when upgrading to avoid starting
+a Saturn pod and reserving its CPU/GPU and memory resources.
+
+### Model delivery
 
 Model delivery defaults are below. The artifact, model-only image, ORAS image,
 and CPU/GPU vLLM images have independent `repository` and `tag` values:

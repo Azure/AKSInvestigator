@@ -44,11 +44,19 @@ HOLMESGPT_DIR=/path/to/holmesgpt ./scripts/sync.sh
 
 `helm/templates/saturn/saturn-vllm.yaml` deploys an in-cluster vLLM serving
 `saturn-ms/saturn-0202` with an OpenAI-compatible API at `/v1` on port 8000, so
-HolmesGPT has a model to talk to out of the box. Rendering rules (all must hold):
-
-- `.Values.saturn.enabled` is true (default in `values.yaml`), AND
-- `.Values.modelList` is **empty** — as soon as `modelList` is non-empty, Saturn
-  is fully suppressed and HolmesGPT uses the external models instead.
+HolmesGPT has a model to talk to out of the box. `.Values.saturn.enabled` is the
+only activation switch (default true), independent of `.Values.modelList`.
+When enabled, the generated Saturn entry is added to a deep copy of the user's
+catalog without mutating Helm values. A key matching `saturn.servedModelName`
+(default `saturn-vllm`) fails rendering instead of overwriting a user model.
+Set `saturn.enabled=false` for external-model-only installs. This changes the
+old non-empty-modelList suppression behavior: upgrades of external-only releases
+must explicitly disable Saturn to avoid unexpectedly reserving its resources.
+Keep the activation condition consistent
+in the Saturn template and the integration patch's Holmes/model-config hunks.
+CPU/GPU context limits and the `envRef:` secret substitution still apply.
+The Holmes `OVERRIDE_MAX_OUTPUT_TOKEN=20000` remains process-wide when Saturn
+is active, including coexistence mode. See the README for Azure OpenAI setup.
 
 CPU vs GPU is selected by `saturn.gpu` (default `false`):
 - `saturn.gpu=false` — CPU vLLM, `--dtype=auto`,
@@ -255,13 +263,15 @@ helm install aks-investigator ./helm -n aks-investigator --create-namespace
 helm install aks-investigator ./helm -n aks-investigator --create-namespace \
   --set saturn.gpu=true
 
-# Bring your own model (a non-empty modelList suppresses Saturn)
+# Bring your own model only (disable Saturn explicitly)
 helm install aks-investigator ./helm -n aks-investigator --create-namespace \
+  --set saturn.enabled=false \
   --set-json 'modelList={"gpt-5":{"model":"openai/gpt-5","api_key":"sk-..."}}'
 ```
 
 When Saturn is active, the chart automatically adds `openai/saturn-vllm` and
-its in-cluster endpoint to HolmesGPT's model list. The generated
+its in-cluster endpoint to HolmesGPT's model list, preserving user models when
+Saturn is enabled. The generated
 `max_context_size` matches the selected CPU/GPU serving limit.
 
 ## Working conventions
