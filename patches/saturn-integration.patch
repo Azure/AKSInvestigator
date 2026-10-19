@@ -161,7 +161,22 @@ diff --git a/helm/templates/toolset-config.yaml b/helm/templates/toolset-config.
  apiVersion: v1
  kind: ConfigMap
  metadata:
-@@ -239,7 +241,24 @@ data:
+@@ -14,7 +16,14 @@ metadata:
+   {{- end }}
+ data:
+   custom_toolset.yaml: |-
+     {{- $toolsets := .Values.toolsets }}
++    {{- /*
++      Saturn 0202 is not well trained for kubectl-run, which is error-prone
++      especially in air-gapped environments.
++    */}}
++    {{- if $saturnEnabled }}
++    {{- $toolsets = mergeOverwrite (deepCopy ($toolsets | default dict)) (dict "kubectl-run" (dict "enabled" false)) }}
++    {{- end }}
+     {{- if .Values.k8sRBAC }}
+     {{- $rbacOverrides := dict "kubernetes/core" (dict "enabled" false) "kubernetes/logs" (dict "enabled" false) "bash" (dict "enabled" false) }}
+     {{- $toolsets = mergeOverwrite $toolsets $rbacOverrides }}
+@@ -239,7 +248,24 @@ data:
        plain scalars in `key: value` form, so this anchor covers every
        real-world usage.
      */ -}}

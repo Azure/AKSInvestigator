@@ -17,6 +17,13 @@ metadata:
 data:
   custom_toolset.yaml: |-
     {{- $toolsets := .Values.toolsets }}
+    {{- /*
+      Saturn 0202 is not well trained for kubectl-run, which is error-prone
+      especially in air-gapped environments.
+    */}}
+    {{- if $saturnEnabled }}
+    {{- $toolsets = mergeOverwrite (deepCopy ($toolsets | default dict)) (dict "kubectl-run" (dict "enabled" false)) }}
+    {{- end }}
     {{- if .Values.k8sRBAC }}
     {{- $rbacOverrides := dict "kubernetes/core" (dict "enabled" false) "kubernetes/logs" (dict "enabled" false) "bash" (dict "enabled" false) }}
     {{- $toolsets = mergeOverwrite $toolsets $rbacOverrides }}
