@@ -28,16 +28,16 @@ jobs:
         shell: bash
         working-directory: kubectl-plugin
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       with:
         persist-credentials: false
 
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24.x'
         cache-dependency-path: kubectl-plugin/go.sum
 
-    - uses: azure/setup-kubectl@v4
+    - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
       with:
         version: v1.34.1
 
@@ -83,7 +83,7 @@ jobs:
         exit 0
 
     - name: Upload tested binary and checksum
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: kubectl-investigate-${{ steps.platform.outputs.goos }}-${{ steps.platform.outputs.goarch }}
         path: kubectl-plugin/bin/host/

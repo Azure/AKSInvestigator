@@ -72,10 +72,10 @@ jobs:
     runs-on: [ "self-hosted", "1ES.Pool=1es-aks-investigator-pool-ubuntu" ]
     steps:
     - name: Checkout AKSInvestigator
-      uses: actions/checkout@v5
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
     - name: Set up Helm
-      uses: azure/setup-helm@v4
+      uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
 
     - name: Resolve chart version and app version
       id: versions
@@ -136,7 +136,7 @@ jobs:
       PLUGIN_REPO: public/microsoft.aks.investigator/kubectl-investigate
       ARTIFACT_TYPE: application/vnd.microsoft.aks.investigator.kubectl-plugin.v1
     steps:
-    - uses: oras-project/setup-oras@v1
+    - uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
       with:
         version: 1.2.2
 
@@ -146,7 +146,7 @@ jobs:
         echo "PLUGIN_WORK=$(mktemp -d "${RUNNER_TEMP}/plugin-release.XXXXXX")" >> "${GITHUB_ENV}"
 
     - name: Download binaries tested by release E2E
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         pattern: kubectl-investigate-*
         path: ${{ env.PLUGIN_WORK }}/artifacts
@@ -231,7 +231,7 @@ jobs:
         echo 'Source ACR verified; MCR ingestion/availability is not verified by this workflow.' >> "${GITHUB_STEP_SUMMARY}"
 
     - name: Upload verified release assets
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: plugin-release-assets
         path: |
@@ -251,7 +251,7 @@ jobs:
     permissions:
       contents: write
     steps:
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         name: plugin-release-assets
         path: dist
