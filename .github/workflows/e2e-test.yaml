@@ -99,6 +99,7 @@ jobs:
         helm push "/tmp/chart/aks-investigator-chart-${VERSION}.tgz" "oci://${ACR_NAME}.azurecr.io/e2e"
 
   deploy-test:
+    name: deploy-test ${{ matrix.mode }}
     needs: package-chart
     runs-on: [ "self-hosted", "e2e" ]
     timeout-minutes: 90
