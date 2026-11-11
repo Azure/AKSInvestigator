@@ -77,6 +77,10 @@ branch.
 
 ## Install
 
+For Azure Local disconnected operations, see the
+[expansion-pack catalog](DISCONNECTED_CATALOG.md#aks-investigator-extension-expansion-packs)
+for published PXP versions and download links.
+
 Saturn uses the model image by default. **Verify that
 `mcr.microsoft.com/microsoft.aks.investigator/saturn:0.1.0` is available** before
 installing (see [publication details](#publish-the-saturn-model)).
